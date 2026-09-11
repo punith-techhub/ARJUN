@@ -39,16 +39,20 @@ Commands sent while another build is running are queued per worker so two tasks 
 ### 1. Create credentials
 
 - Telegram: message [@BotFather](https://t.me/BotFather), create a bot, and copy its token. Your numeric Telegram user ID can be found with a trusted ID bot or Telegram API utility.
-- Gemini: create a free-tier API key in [Google AI Studio](https://aistudio.google.com/apikey).
+- Free LLM Providers & Key Pools (Supports multiple free models and keys to scale rate limits):
+  - **Google Gemini**: Get free keys from [Google AI Studio](https://aistudio.google.com/apikey) (15 RPM, 1M TPM per key). Set comma-separated `GEMINI_API_KEYS=key1,key2...`.
+  - **Groq**: Get free keys from [Groq Console](https://console.groq.com/keys) (fast Llama 3.3 70B & Whisper audio). Set `GROQ_API_KEYS=gsk_1,gsk_2...`.
+  - **OpenRouter**: Get free keys from [OpenRouter](https://openrouter.ai/keys) for free-tier models (`:free`). Set `OPENROUTER_API_KEYS=sk-or-1...`.
+  - **Model Priority & Fallback**: Set `LLM_MODELS=gemini-2.0-flash,llama-3.3-70b-versatile,gemini-1.5-flash`.
 - GitHub: create a personal access token with repository contents/write access for the target repository. A classic token needs the `repo` scope.
 
-For Gemini, `GEMINI_API_KEY` must be the API-key string copied from Google AI Studio. Do not paste a Google OAuth access token (`Bearer ...`), service-account JSON, or another service token into this variable. A safe connectivity check is:
+When multiple keys or models are provided, Arjun automatically rotates keys to distribute usage evenly, and immediately fails over to the next key/model if one encounters TPM/RPM rate limits. A safe connectivity check is:
 
 ```bash
-python -c "import asyncio; from config.settings import Settings; from agents.base import BaseAgent; s=Settings.from_environment(); a=BaseAgent(s); print('Gemini:', asyncio.run(a.generate_text('Reply OK', system_instruction='Connectivity check', attempts=1))[:20]); asyncio.run(a.close())"
+python -c "import asyncio; from config.settings import Settings; from agents.base import BaseAgent; s=Settings.from_environment(); a=BaseAgent(s); print('LLM Output:', asyncio.run(a.generate_text('Reply OK', system_instruction='Connectivity check', attempts=1))[:20]); asyncio.run(a.close())"
 ```
 
-If this reports authentication failure, replace the key in the environment of the running cloud worker and restart it; changing only the laptop `.env` does not change an already deployed worker.
+If this reports authentication failure, check the keys in your `.env` or cloud worker environment.
 
 `GITHUB_REPO` must remain in `owner/repository` form, for example `punithpgowda7-dev/ArjunAgent`. Arjun sends that exact slug to Vercel when creating a linked project. The Vercel GitHub App must be installed for the personal account or organization that owns the repository; a Vercel access token alone cannot grant Vercel access to a private GitHub repository.
 

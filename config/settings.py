@@ -14,9 +14,14 @@ class Settings(BaseModel):
 
     telegram_bot_token: str = Field(min_length=1)
     telegram_allowed_users: frozenset[int] = Field(min_length=1)
-    llm_api_key: str = Field(min_length=1)
-    llm_model: str = Field(default="gpt-4o-mini", min_length=1)
+    llm_api_key: str = ""
+    llm_api_keys: tuple[str, ...] = Field(default_factory=tuple)
+    llm_model: str = Field(default="gpt-4o-mini")
+    llm_models: tuple[str, ...] = Field(default_factory=tuple)
     llm_base_url: str | None = None
+    gemini_api_keys: tuple[str, ...] = Field(default_factory=tuple)
+    groq_api_keys: tuple[str, ...] = Field(default_factory=tuple)
+    openrouter_api_keys: tuple[str, ...] = Field(default_factory=tuple)
     github_token: str = Field(min_length=1)
     github_repo: str = Field(min_length=3)
     default_branch: str = Field(default="main", min_length=1)
@@ -93,12 +98,44 @@ class Settings(BaseModel):
         if auto_promote and working_branch == default_branch:
             working_branch = "arjun-builds"
 
+        llm_api_keys = csv_values("LLM_API_KEYS")
+        llm_key = os.getenv("LLM_API_KEY", "").strip()
+        if llm_key and llm_key not in llm_api_keys:
+            llm_api_keys = (llm_key,) + llm_api_keys
+
+        gemini_keys = csv_values("GEMINI_API_KEYS", os.getenv("GEMINI_API_KEY", ""))
+        groq_keys = csv_values("GROQ_API_KEYS", os.getenv("GROQ_API_KEY", ""))
+        openrouter_keys = csv_values("OPENROUTER_API_KEYS", os.getenv("OPENROUTER_API_KEY", ""))
+
+        models = csv_values("LLM_MODELS")
+        model = os.getenv("LLM_MODEL", "").strip()
+        if not model and models:
+            model = models[0]
+        elif not model:
+            model = "gpt-4o-mini"
+        if model and model not in models:
+            models = (model,) + models
+
+        primary_key = llm_key or (llm_api_keys[0] if llm_api_keys else "")
+        if not primary_key:
+            if gemini_keys:
+                primary_key = gemini_keys[0]
+            elif groq_keys:
+                primary_key = groq_keys[0]
+            elif openrouter_keys:
+                primary_key = openrouter_keys[0]
+
         return cls(
             telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN", ""),
             telegram_allowed_users=users,
-            llm_api_key=os.getenv("LLM_API_KEY", ""),
-            llm_model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
+            llm_api_key=primary_key,
+            llm_api_keys=llm_api_keys,
+            llm_model=model,
+            llm_models=models,
             llm_base_url=os.getenv("LLM_BASE_URL"),
+            gemini_api_keys=gemini_keys,
+            groq_api_keys=groq_keys,
+            openrouter_api_keys=openrouter_keys,
             github_token=os.getenv("GITHUB_TOKEN", ""),
             github_repo=os.getenv("GITHUB_REPO", ""),
             default_branch=default_branch,
