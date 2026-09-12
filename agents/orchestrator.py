@@ -128,6 +128,7 @@ class Orchestrator:
                     if (
                         runtime is not None
                         and self.project_manager is not None
+                        and self.vercel is not None
                         and self.vercel.settings.vercel_project_id
                     ):
                         await self.project_manager.registry.update_vercel(
@@ -300,17 +301,19 @@ class Orchestrator:
             )
 
         max_debug_attempts = self.github.settings.max_debug_attempts
-        if self.vercel is not None and self.vercel.settings.vercel_token:
+        vercel_active = bool(self.vercel is not None and self.vercel.settings.vercel_token)
+        if vercel_active:
             await update("🔧 Discovering or provisioning the Vercel project...")
             try:
                 project = await self.vercel.ensure_project(
                     repository_name=self.github.settings.github_repo,
                     production_branch=self.github.settings.default_branch,
                 )
+                await update(f"✅ Vercel project ready: {project.name}")
             except VercelError as error:
-                logger.exception("Vercel project provisioning failed")
-                raise OrchestrationError(f"Vercel project setup failed: {error}") from error
-            await update(f"✅ Vercel project ready: {project.name}")
+                logger.warning("Vercel project provisioning failed: %s", error)
+                await update(f"⚠️ Vercel integration skipped ({error}). Delivering code to GitHub only.")
+                vercel_active = False
 
         last_deployment_failure = ""
         for debug_attempt in range(max_debug_attempts + 1):
@@ -330,8 +333,8 @@ class Orchestrator:
                 logger.exception("GitHub delivery failed")
                 raise OrchestrationError("GitHub delivery failed") from error
 
-            if self.vercel is None or not self.vercel.settings.vercel_token:
-                await update("✅ GitHub task completed (Vercel is not configured)")
+            if not vercel_active:
+                await update("✅ GitHub task completed (Vercel deployment is not configured or unavailable)")
                 return OrchestrationResult(github=result, debug_attempts=debug_attempt)
 
             await update("🔐 Syncing configured environment variables to Vercel...")
@@ -343,8 +346,8 @@ class Orchestrator:
                         + ", ".join(env_result.missing[:8])
                     )
             except VercelError as error:
-                logger.exception("Vercel environment synchronization failed")
-                raise OrchestrationError(f"Vercel environment sync failed: {error}") from error
+                logger.warning("Vercel environment synchronization failed: %s", error)
+                await update(f"⚠️ Vercel environment sync skipped: {error}. Proceeding with deployment...")
 
             preview_mode = (
                 self.github.settings.auto_promote_production
@@ -367,8 +370,12 @@ class Orchestrator:
                     target=deployment_target,
                 )
             except VercelError as error:
-                logger.exception("Vercel deployment request failed")
-                raise OrchestrationError(f"Vercel deployment failed: {error}") from error
+                logger.warning("Vercel deployment request failed: %s", error)
+                await update(
+                    f"⚠️ Vercel deployment failed ({error}). Code delivered to GitHub successfully."
+                )
+                return OrchestrationResult(github=result, debug_attempts=debug_attempt)
+
             deployment = await verify_deployment(deployment)
 
             if not deployment.ready:
@@ -411,10 +418,17 @@ class Orchestrator:
                         target=self.github.settings.vercel_target,
                     )
                 except VercelError as error:
-                    logger.exception("Vercel production deployment failed")
-                    raise OrchestrationError(
-                        f"Vercel production deployment failed: {error}"
-                    ) from error
+                    logger.warning("Vercel production deployment failed: %s", error)
+                    await update(
+                        f"⚠️ Vercel production deployment failed: {error}. "
+                        f"Promotion to {self.github.settings.default_branch} succeeded."
+                    )
+                    return OrchestrationResult(
+                        github=result,
+                        deployment=deployment,
+                        debug_attempts=debug_attempt,
+                        production=False,
+                    )
                 deployment = await verify_deployment(deployment)
 
             if deployment.ready:

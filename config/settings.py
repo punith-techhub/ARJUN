@@ -122,6 +122,44 @@ class Settings(BaseModel):
             if k not in {"not_needed_for_omniroute", "replace_with_api_key", ""}
         )
 
+        def clean_token(val: str, placeholders: set[str]) -> str:
+            v = val.strip()
+            if v.lower() in placeholders:
+                return ""
+            return v
+
+        raw_vercel_token = clean_token(
+            os.getenv("VERCEL_TOKEN", ""),
+            {
+                "replace_with_vercel_access_token",
+                "replace_with_token",
+                "replace_with_vercel_token",
+                "none",
+                "null",
+                "false",
+                "undefined",
+            },
+        )
+        raw_github_token = clean_token(
+            os.getenv("GITHUB_TOKEN", ""),
+            {
+                "replace_with_github_pat",
+                "replace_with_github_token",
+                "replace_with_token",
+                "none",
+                "null",
+            },
+        )
+        raw_github_repo = clean_token(
+            os.getenv("GITHUB_REPO", ""),
+            {
+                "owner/repository",
+                "your_username/your_repo",
+                "none",
+                "null",
+            },
+        )
+
         models = csv_values("LLM_MODELS")
         user_model = os.getenv("LLM_MODEL", "").strip()
         has_openai = any(
@@ -130,13 +168,13 @@ class Settings(BaseModel):
         )
         if not has_openai and (user_model == "gpt-4o-mini" or not user_model):
             if gemini_keys or any(k.startswith("AIza") for k in llm_api_keys):
-                model = "gemini-2.0-flash"
+                model = "gemini-2.5-flash"
                 if not models:
-                    models = ("gemini-2.0-flash", "gemini-1.5-flash")
+                    models = ("gemini-2.5-flash", "gemini-3.6-flash", "gemini-2.0-flash", "gemini-1.5-flash")
             elif groq_keys or any(k.startswith("gsk_") for k in llm_api_keys):
-                model = "llama-3.3-70b-versatile"
+                model = "openai/gpt-oss-120b"
                 if not models:
-                    models = ("llama-3.3-70b-versatile", "llama-3.1-8b-instant")
+                    models = ("openai/gpt-oss-120b", "qwen/qwen3.8-27b", "llama-3.3-70b-versatile")
             elif openrouter_keys or any(k.startswith("sk-or-") for k in llm_api_keys):
                 model = "meta-llama/llama-3.3-70b-instruct:free"
                 if not models:
@@ -177,14 +215,14 @@ class Settings(BaseModel):
             gemini_api_keys=gemini_keys,
             groq_api_keys=groq_keys,
             openrouter_api_keys=openrouter_keys,
-            github_token=os.getenv("GITHUB_TOKEN", ""),
-            github_repo=os.getenv("GITHUB_REPO", ""),
+            github_token=raw_github_token,
+            github_repo=raw_github_repo,
             default_branch=default_branch,
             agent_working_branch=working_branch,
-            vercel_token=os.getenv("VERCEL_TOKEN", ""),
-            vercel_project_id=os.getenv("VERCEL_PROJECT_ID", ""),
-            vercel_project_name=os.getenv("VERCEL_PROJECT_NAME", ""),
-            vercel_team_id=os.getenv("VERCEL_TEAM_ID", ""),
+            vercel_token=raw_vercel_token,
+            vercel_project_id=os.getenv("VERCEL_PROJECT_ID", "").strip(),
+            vercel_project_name=os.getenv("VERCEL_PROJECT_NAME", "").strip(),
+            vercel_team_id=os.getenv("VERCEL_TEAM_ID", "").strip(),
             vercel_target=os.getenv("VERCEL_TARGET", "production"),
             vercel_preview_target=os.getenv("VERCEL_PREVIEW_TARGET", "staging"),
             vercel_auto_create_project=boolean("VERCEL_AUTO_CREATE_PROJECT", True),
