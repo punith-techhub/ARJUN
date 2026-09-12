@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
 import os
 import re
 import sqlite3
@@ -23,15 +25,16 @@ class SecretStore:
     _key_pattern = re.compile(r"^[A-Z][A-Z0-9_]{1,127}$")
 
     def __init__(self, database_path: str, master_key: str, scope: str = "__global__") -> None:
-        if not master_key:
+        cleaned = (master_key or "").strip()
+        if not cleaned or cleaned in {"replace_with_a_generated_fernet_key", '""', "''"}:
             self._cipher: Fernet | None = None
         else:
             try:
-                self._cipher = Fernet(master_key.encode("ascii"))
-            except Exception as error:
-                raise SecretStoreError(
-                    "ARJUN_SECRET_KEY is invalid; generate a Fernet key and set it once on the worker"
-                ) from error
+                self._cipher = Fernet(cleaned.encode("ascii"))
+            except Exception:
+                # Deterministically derive 32-byte url-safe base64 key from any passphrase
+                derived = base64.urlsafe_b64encode(hashlib.sha256(cleaned.encode("utf-8")).digest())
+                self._cipher = Fernet(derived)
         self.database_path = database_path
         self.scope = scope
         if database_path != ":memory:":
