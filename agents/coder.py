@@ -111,13 +111,23 @@ class CoderAgent:
         review_feedback: str | None = None,
         repository_context: str = "",
         memory_context: str = "",
+        previous_files: list[GeneratedFile] | None = None,
     ) -> CoderOutput:
         """Implement the plan one file at a time so Groq TPM limits are not exceeded."""
         feedback = review_feedback or "No prior review feedback; implement the plan from scratch."
+        prev_map: dict[str, str] = {f.filepath: f.content for f in (previous_files or [])}
         generated: list[GeneratedFile] = []
         for i, planned in enumerate(plan.files):
             if i > 0:
                 await asyncio.sleep(2.0)
+
+            # Gather context from already generated sibling files in this pass or previous pass
+            sibling_snippets: list[str] = []
+            for item in generated:
+                # Include last ~1200 characters or key exports so types and props align
+                content_sample = item.content if len(item.content) <= 1500 else item.content[:800] + "\n...\n" + item.content[-700:]
+                sibling_snippets.append(f"--- File: {item.filepath} ---\n{content_sample}")
+
             file_impl = await self._implement_file(
                 plan,
                 planned,
@@ -125,6 +135,8 @@ class CoderAgent:
                 repository_context=repository_context,
                 memory_context=memory_context,
                 sibling_paths=[item.filepath for item in generated],
+                sibling_context="\n\n".join(sibling_snippets),
+                previous_content=prev_map.get(planned.filepath, ""),
             )
             generated.append(file_impl)
 
@@ -154,18 +166,24 @@ class CoderAgent:
         repository_context: str,
         memory_context: str,
         sibling_paths: list[str],
+        sibling_context: str = "",
+        previous_content: str = "",
     ) -> GeneratedFile:
-        prompt_dict = {
+        prompt_dict: dict[str, Any] = {
             "summary": plan.summary,
             "stack": plan.technology_stack,
             "acceptance": plan.acceptance_criteria[:6],
             "target_file": planned.model_dump(),
             "other_planned_paths": [item.filepath for item in plan.files],
             "already_generated_paths": sibling_paths,
-            "repository_excerpt": repository_context[:3500],
-            "review_feedback": feedback[:1500],
+            "repository_excerpt": repository_context[:3000],
+            "review_feedback": feedback[:2000],
             "memory": memory_context[:500],
         }
+        if sibling_context:
+            prompt_dict["sibling_files_context"] = sibling_context[:3000]
+        if previous_content:
+            prompt_dict["previous_version_of_target_file"] = previous_content[:3000]
 
         system_instruction = (
             "You are the Coder agent. Produce the complete code content for exactly the "
@@ -175,7 +193,10 @@ class CoderAgent:
             "Never leave 'content' empty, and never output placeholder comments like '// TODO' or '...rest of code...'.\n"
             "2. 'filepath' must exactly match the target_file path.\n"
             "3. 'action' must match the target_file action ('create' or 'update').\n"
-            "4. Return valid JSON only with keys: 'filepath', 'action', and 'content'."
+            "4. Ensure full type and interface consistency with sibling components ('sibling_files_context'). "
+            "Props, function parameters, types, and imports must match exactly across all files.\n"
+            "5. Carefully address any specific issues mentioned in 'review_feedback'.\n"
+            "6. Return valid JSON only with keys: 'filepath', 'action', and 'content'."
         )
 
         last_result: GeneratedFile | None = None
