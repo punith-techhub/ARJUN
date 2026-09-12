@@ -745,5 +745,6 @@ class Orchestrator:
             secret_markers = ("ghp_", "github_pat_", "AIzaSy", "-----BEGIN PRIVATE KEY-----")
             if any(marker in item.content for marker in secret_markers):
                 raise OrchestrationError(f"Refusing to commit a likely secret in {item.filepath}")
-        if any(not item.content.strip() for item in generated.files):
-            raise OrchestrationError("Coder returned an empty file")
+        for item in generated.files:
+            if not item.content.strip():
+                raise OrchestrationError(f"Coder returned an empty file for '{item.filepath}'")
