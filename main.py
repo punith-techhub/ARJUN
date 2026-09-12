@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import logging
+import os
+import threading
+import time
+from http.server import HTTPServer, SimpleHTTPRequestHandler
 
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 
@@ -56,14 +60,16 @@ def build_application() -> tuple[Application, BaseAgent, GitHubService]:
     application = (
         Application.builder()
         .token(settings.telegram_bot_token)
+        .concurrent_updates(True)
         .post_shutdown(shutdown)
         .build()
     )
-    application.add_handler(CommandHandler("start", handler.start))
-    application.add_handler(CommandHandler("help", handler.start))
-    application.add_handler(MessageHandler(filters.VOICE, handler.handle_voice))
-    application.add_handler(MessageHandler(filters.Document.ALL, handler.handle_document))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handler.handle_text))
+    application.add_handler(CommandHandler("start", handler.start, block=False))
+    application.add_handler(CommandHandler("help", handler.start, block=False))
+    application.add_handler(CommandHandler("cancel", handler.cancel, block=False))
+    application.add_handler(MessageHandler(filters.VOICE, handler.handle_voice, block=False))
+    application.add_handler(MessageHandler(filters.Document.ALL, handler.handle_document, block=False))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handler.handle_text, block=False))
     application.add_error_handler(handler.error_handler)
     return application, base_agent, github
 
@@ -76,9 +82,6 @@ def main() -> None:
     )
 
     # Start a dummy HTTP server so Render "Web Service" health checks pass
-    import os
-    import threading
-    from http.server import HTTPServer, SimpleHTTPRequestHandler
     port = int(os.environ.get("PORT", 8080))
     threading.Thread(
         target=lambda: HTTPServer(("0.0.0.0", port), SimpleHTTPRequestHandler).serve_forever(),
@@ -89,13 +92,28 @@ def main() -> None:
     # Keep provider failures in our own sanitized handlers instead.
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
-    application, base_agent, github = build_application()
-    try:
-        application.run_polling(allowed_updates=["message"])
-    finally:
-        # run_polling owns the event loop; shutdown is handled by PTB. The clients are
-        # explicitly closed for deployments that invoke main under a custom runner.
-        del base_agent, github
+
+    while True:
+        try:
+            application, base_agent, github = build_application()
+            try:
+                application.run_polling(
+                    allowed_updates=["message"],
+                    drop_pending_updates=True,
+                    bootstrap_retries=10,
+                )
+                break
+            finally:
+                del base_agent, github
+        except Exception as error:
+            if "conflict" in str(error).lower():
+                logging.getLogger(__name__).warning(
+                    "Telegram polling conflict detected (previous deployment container is shutting down). "
+                    "Waiting 6 seconds before reconnecting..."
+                )
+                time.sleep(6)
+                continue
+            raise
 
 
 if __name__ == "__main__":

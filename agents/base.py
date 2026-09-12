@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from config.settings import Settings
 from utils.parser import parse_json_response
+from .provider_pool import LLMProviderPool, LLMTarget
 
 logger = logging.getLogger(__name__)
 ModelT = TypeVar("ModelT", bound=BaseModel)
@@ -68,19 +69,23 @@ def compact_model_schema(model: type[BaseModel]) -> str:
 class BaseAgent:
     """Base class for agents with retrying text and multimodal generation."""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, pool: LLMProviderPool | None = None) -> None:
         self.settings = settings
-        self.client = AsyncOpenAI(
-            api_key=settings.llm_api_key,
-            base_url=settings.llm_base_url,
-        )
+        self.pool = pool or LLMProviderPool(settings)
         self._closed = False
 
+    @property
+    def client(self) -> AsyncOpenAI:
+        """Compatibility property returning the primary AsyncOpenAI client."""
+        if self.pool._targets:
+            return self.pool.get_client(self.pool._targets[0])
+        return AsyncOpenAI(api_key=self.settings.llm_api_key, base_url=self.settings.llm_base_url)
+
     async def close(self) -> None:
-        """Close the underlying async client."""
+        """Close all underlying async clients in the provider pool."""
         if self._closed:
             return
-        await self.client.close()
+        await self.pool.close()
         self._closed = True
 
     @staticmethod
@@ -171,7 +176,8 @@ class BaseAgent:
             )
         if status == 404 or "not found" in text:
             return status, (
-                "The configured LLM model or API endpoint was not found. Check LLM_MODEL."
+                f"The configured LLM model or API endpoint was not found ({error}). "
+                "Check that your LLM_MODEL matches your provider (e.g. 'gemini-2.0-flash' for Gemini, 'llama-3.3-70b-versatile' for Groq)."
             )
         if cls._is_tpm_error(error) or status == 429 or any(
             marker in text for marker in ("quota", "resource_exhausted", "rate limit")
@@ -200,7 +206,7 @@ class BaseAgent:
         response_schema: Any = None,
         max_tokens: int = _DEFAULT_MAX_TOKENS,
     ) -> str:
-        """Generate text with exponential backoff and jitter for transient failures."""
+        """Generate text with multi-key rotation and multi-model fallback."""
         last_error: BaseException | None = None
         token_budget = max(256, min(max_tokens, _HARD_MAX_TOKENS))
         del response_schema
@@ -212,7 +218,7 @@ class BaseAgent:
         messages = [
             {"role": "system", "content": system_instruction},
         ]
-        
+
         if isinstance(contents, str):
             messages.append({"role": "user", "content": contents})
         elif isinstance(contents, Sequence) and not isinstance(contents, str):
@@ -229,50 +235,112 @@ class BaseAgent:
             messages.append({"role": "user", "content": str(contents)})
 
         for attempt in range(attempts):
-            try:
-                response = await self.client.chat.completions.create(
-                    model=self.settings.llm_model,
-                    messages=messages,
-                    temperature=temperature,
-                    max_tokens=token_budget,
-                    **kwargs,
+            candidates = await self.pool.get_candidate_targets()
+            if not candidates:
+                raise LLMAgentError("No configured LLM targets or API keys available.")
+
+            for target in candidates:
+                client = self.pool.get_client(target)
+                target_budget = token_budget
+                if target.provider == "gemini":
+                    target_budget = max(token_budget, min(max_tokens, 8192))
+                elif target.provider == "groq":
+                    target_budget = min(token_budget, _HARD_MAX_TOKENS)
+
+                try:
+                    response = await client.chat.completions.create(
+                        model=target.model,
+                        messages=messages,
+                        temperature=temperature,
+                        max_tokens=target_budget,
+                        **kwargs,
+                    )
+                    choice = response.choices[0]
+                    text = (choice.message.content or "").strip()
+                    finish_reason = getattr(choice, "finish_reason", None)
+                    if finish_reason == "length":
+                        raise LLMAgentError(
+                            "LLM ran out of completion tokens before finishing the response",
+                            status_code=400,
+                        )
+                    if not text:
+                        raise LLMAgentError("LLM returned an empty response")
+                    return text
+                except Exception as error:
+                    last_error = error
+                    status = self._status_code(error)
+                    is_tpm = self._is_tpm_error(error)
+                    is_out_limit = self._is_output_limit_error(error)
+
+                    if is_tpm or status in {413, 429}:
+                        cooldown = self.pool.parse_retry_delay(error, default_delay=45.0)
+                        self.pool.record_cooldown(target, cooldown, reason=f"RateLimit/TPM ({status})")
+                        if is_tpm:
+                            token_budget = max(256, self._tpm_budget(error, token_budget))
+                        logger.warning(
+                            "Target %s rate-limited; immediately rotating to next key/model in pool.",
+                            target.identifier,
+                        )
+                        continue
+
+                    if status in {401, 403}:
+                        self.pool.record_cooldown(target, 3600.0, reason=f"Auth/Quota ({status})")
+                        logger.warning(
+                            "Target %s auth/quota error (%s); disabling target and rotating.",
+                            target.identifier,
+                            error,
+                        )
+                        continue
+
+                    if status == 404:
+                        self.pool.record_cooldown(target, 3600.0, reason=f"ModelNotFound ({status})")
+                        logger.warning(
+                            "Target %s model not found (404); disabling target and rotating: %s",
+                            target.identifier,
+                            error,
+                        )
+                        continue
+
+                    if status == 400:
+                        self.pool.record_cooldown(target, 15.0, reason=f"BadRequest ({status})")
+                        logger.warning(
+                            "Target %s 400 Bad Request (%s); cooling down for 15s and rotating to next target.",
+                            target.identifier,
+                            error,
+                        )
+                        continue
+
+                    if is_out_limit:
+                        token_budget = min(token_budget * 2, _HARD_MAX_TOKENS)
+                        logger.warning(
+                            "LLM JSON/output truncated on %s; increasing max_tokens to %s and retrying.",
+                            target.identifier,
+                            token_budget,
+                        )
+                        continue
+
+                    if not self._is_retryable(error):
+                        self.pool.record_cooldown(target, 60.0, reason=f"NonRetryable ({status})")
+                        logger.warning("Non-retryable error on %s: %s; trying next target.", target.identifier, error)
+                        continue
+
+                    # Transient provider error
+                    delay = self.pool.parse_retry_delay(error, default_delay=10.0)
+                    self.pool.record_cooldown(target, delay, reason="Transient")
+                    logger.warning("Transient error on %s: %s; trying next target.", target.identifier, error)
+                    continue
+
+            # If all candidates in this attempt were tried, wait briefly before next attempt
+            if attempt < attempts - 1:
+                wait_sec = min(15.0, 2.0 + attempt * 2.0)
+                logger.warning(
+                    "All LLM candidates exhausted on attempt %d/%d; waiting %.1fs before retry.",
+                    attempt + 1,
+                    attempts,
+                    wait_sec,
                 )
-                choice = response.choices[0]
-                text = (choice.message.content or "").strip()
-                finish_reason = getattr(choice, "finish_reason", None)
-                if finish_reason == "length":
-                    raise LLMAgentError(
-                        "LLM ran out of completion tokens before finishing the response",
-                        status_code=400,
-                    )
-                if not text:
-                    raise LLMAgentError("LLM returned an empty response")
-                return text
-            except Exception as error:
-                last_error = error
-                if attempt == attempts - 1 or not self._is_retryable(error):
-                    break
-                if self._is_tpm_error(error):
-                    token_budget = max(256, self._tpm_budget(error, token_budget))
-                    delay = max(self._retry_delay(error, attempt), 10.0 + attempt * 4.0)
-                    logger.warning(
-                        "LLM TPM/request-too-large; retrying with max_tokens=%s after %.2fs",
-                        token_budget,
-                        delay,
-                    )
-                    await asyncio.sleep(delay)
-                    continue
-                if self._is_output_limit_error(error):
-                    token_budget = min(token_budget * 2, _HARD_MAX_TOKENS)
-                    logger.warning(
-                        "LLM JSON/output truncated; retrying with max_tokens=%s",
-                        token_budget,
-                    )
-                    continue
-                delay = self._retry_delay(error, attempt)
-                logger.warning("Transient LLM error; retrying in %.2fs", delay)
-                await asyncio.sleep(delay)
-                
+                await asyncio.sleep(wait_sec)
+
         status, detail = self._safe_failure_detail(last_error or RuntimeError("unknown provider error"))
         logger.error(
             "LLM request failed after retries: error_type=%s status=%s",
@@ -355,22 +423,20 @@ class BaseAgent:
         """Interpret an in-memory OGG voice note."""
         if not audio_bytes:
             raise LLMAgentError("The voice message was empty")
-            
+
         import io
         audio_file = io.BytesIO(audio_bytes)
         audio_file.name = "audio.ogg"
-        
+
         try:
-            # Check if groq is used based on base_url or model
-            is_groq = self.settings.llm_base_url and "groq" in self.settings.llm_base_url.lower()
-            model = "whisper-large-v3" if is_groq else "whisper-1"
-            
-            response = await self.client.audio.transcriptions.create(
+            client, model = await self.pool.get_audio_target()
+            response = await client.audio.transcriptions.create(
                 model=model,
                 file=audio_file,
-                prompt=prompt
+                prompt=prompt,
             )
             return response.text
         except Exception as error:
             logger.error("Audio transcription failed: %s", str(error))
             raise LLMAgentError(f"Audio transcription failed: {error}")
+

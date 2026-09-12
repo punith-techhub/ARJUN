@@ -298,7 +298,13 @@ class ProjectManager:
                     "Automatic GitHub repository creation is disabled by GITHUB_AUTO_CREATE_REPOSITORIES"
                 )
             project_name = self.registry.slug(route.project_name or self._fallback_name(request))
-            owner = self.settings.github_repo.split("/", 1)[0]
+            if "/" in self.settings.github_repo:
+                owner = self.settings.github_repo.split("/", 1)[0]
+            else:
+                try:
+                    owner = (self.settings.github_token and discovery_client.client.get_user().login) or "arjun"
+                except Exception:
+                    owner = "arjun"
             repository = f"{owner}/{project_name}"
             existing = next((item for item in records if item.repository.casefold() == repository.casefold()), None)
             if existing is not None:

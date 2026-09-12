@@ -128,6 +128,7 @@ class Orchestrator:
                     if (
                         runtime is not None
                         and self.project_manager is not None
+                        and self.vercel is not None
                         and self.vercel.settings.vercel_project_id
                     ):
                         await self.project_manager.registry.update_vercel(
@@ -263,54 +264,70 @@ class Orchestrator:
 
         await update("🔍 Reviewing and validating syntax...")
         review = await self.reviewer.review(request, generated, memory_context=memory_context)
-        if not review.approved:
+        max_review_corrections = 2
+        review_correction_round = 0
+
+        while not review.approved and review_correction_round < max_review_corrections:
+            review_correction_round += 1
             if self.memory is not None:
                 await self.memory.record_lesson(
                     category="review_gate",
                     symptom=review.summary,
-                    fix="Applied reviewer corrections before delivery",
+                    fix=f"Applied reviewer corrections round {review_correction_round} before delivery",
                 )
-            await update("🛠️ Applying one reviewer correction loop...")
+            await update(f"🛠️ Applying reviewer correction loop ({review_correction_round}/{max_review_corrections})...")
             generated = await self.coder.implement(
                 plan,
                 review_feedback=self._format_review(review),
                 repository_context=file_context,
                 memory_context=memory_context,
+                previous_files=generated.files,
             )
             self._validate_generated_output(plan, generated)
             await update("🔍 Re-reviewing corrected code...")
             review = await self.reviewer.review(request, generated, memory_context=memory_context)
 
         if not review.approved:
-            # Safety net: only block delivery when there is at least one blocker or high severity
-            # issue. If the reviewer still rejects after correction but all remaining issues are
-            # medium/low (e.g. minor inefficiencies, style), ship the code anyway rather than
-            # failing the whole task — medium/low issues do not prevent functional delivery.
             blocking_issues = [
                 issue for issue in review.issues if issue.severity in ("blocker", "high")
             ]
             if blocking_issues:
-                raise OrchestrationError(
-                    "Review did not approve the generated code after one correction loop: "
-                    f"{review.summary}"
+                # If Vercel deployment with automatic debugging is available, proceed to test
+                # with real compiler logs rather than fatally aborting upfront.
+                if self.vercel is not None and self.vercel.settings.vercel_token and self.github.settings.max_debug_attempts > 0:
+                    logger.warning(
+                        "Reviewer flagged potential issues (%s), but proceeding to Vercel remote build verification for automated compiler validation.",
+                        review.summary,
+                    )
+                    await update(
+                        "⚠️ Reviewer noted potential issues; proceeding to Vercel build verification "
+                        "for automated compiler diagnosis..."
+                    )
+                else:
+                    raise OrchestrationError(
+                        f"Review did not approve the generated code after {review_correction_round} correction loop(s): "
+                        f"{review.summary}"
+                    )
+            else:
+                logger.warning(
+                    "Reviewer returned approved=false with only medium/low issues; shipping anyway: %s",
+                    review.summary,
                 )
-            logger.warning(
-                "Reviewer returned approved=false with only medium/low issues; shipping anyway: %s",
-                review.summary,
-            )
 
         max_debug_attempts = self.github.settings.max_debug_attempts
-        if self.vercel is not None and self.vercel.settings.vercel_token:
+        vercel_active = bool(self.vercel is not None and self.vercel.settings.vercel_token)
+        if vercel_active:
             await update("🔧 Discovering or provisioning the Vercel project...")
             try:
                 project = await self.vercel.ensure_project(
                     repository_name=self.github.settings.github_repo,
                     production_branch=self.github.settings.default_branch,
                 )
+                await update(f"✅ Vercel project ready: {project.name}")
             except VercelError as error:
-                logger.exception("Vercel project provisioning failed")
-                raise OrchestrationError(f"Vercel project setup failed: {error}") from error
-            await update(f"✅ Vercel project ready: {project.name}")
+                logger.warning("Vercel project provisioning failed: %s", error)
+                await update(f"⚠️ Vercel integration skipped ({error}). Delivering code to GitHub only.")
+                vercel_active = False
 
         last_deployment_failure = ""
         for debug_attempt in range(max_debug_attempts + 1):
@@ -330,8 +347,8 @@ class Orchestrator:
                 logger.exception("GitHub delivery failed")
                 raise OrchestrationError("GitHub delivery failed") from error
 
-            if self.vercel is None or not self.vercel.settings.vercel_token:
-                await update("✅ GitHub task completed (Vercel is not configured)")
+            if not vercel_active:
+                await update("✅ GitHub task completed (Vercel deployment is not configured or unavailable)")
                 return OrchestrationResult(github=result, debug_attempts=debug_attempt)
 
             await update("🔐 Syncing configured environment variables to Vercel...")
@@ -343,8 +360,8 @@ class Orchestrator:
                         + ", ".join(env_result.missing[:8])
                     )
             except VercelError as error:
-                logger.exception("Vercel environment synchronization failed")
-                raise OrchestrationError(f"Vercel environment sync failed: {error}") from error
+                logger.warning("Vercel environment synchronization failed: %s", error)
+                await update(f"⚠️ Vercel environment sync skipped: {error}. Proceeding with deployment...")
 
             preview_mode = (
                 self.github.settings.auto_promote_production
@@ -367,8 +384,12 @@ class Orchestrator:
                     target=deployment_target,
                 )
             except VercelError as error:
-                logger.exception("Vercel deployment request failed")
-                raise OrchestrationError(f"Vercel deployment failed: {error}") from error
+                logger.warning("Vercel deployment request failed: %s", error)
+                await update(
+                    f"⚠️ Vercel deployment failed ({error}). Code delivered to GitHub successfully."
+                )
+                return OrchestrationResult(github=result, debug_attempts=debug_attempt)
+
             deployment = await verify_deployment(deployment)
 
             if not deployment.ready:
@@ -411,10 +432,17 @@ class Orchestrator:
                         target=self.github.settings.vercel_target,
                     )
                 except VercelError as error:
-                    logger.exception("Vercel production deployment failed")
-                    raise OrchestrationError(
-                        f"Vercel production deployment failed: {error}"
-                    ) from error
+                    logger.warning("Vercel production deployment failed: %s", error)
+                    await update(
+                        f"⚠️ Vercel production deployment failed: {error}. "
+                        f"Promotion to {self.github.settings.default_branch} succeeded."
+                    )
+                    return OrchestrationResult(
+                        github=result,
+                        deployment=deployment,
+                        debug_attempts=debug_attempt,
+                        production=False,
+                    )
                 deployment = await verify_deployment(deployment)
 
             if deployment.ready:
@@ -447,6 +475,7 @@ class Orchestrator:
                 review_feedback=self._format_deployment_failure(deployment),
                 repository_context=file_context,
                 memory_context=memory_context,
+                previous_files=generated.files,
             )
             self._validate_generated_output(plan, generated)
             await update("🔍 Reviewing the automatic build correction...")
@@ -458,13 +487,18 @@ class Orchestrator:
                     review_feedback=self._format_review(review),
                     repository_context=file_context,
                     memory_context=memory_context,
+                    previous_files=generated.files,
                 )
                 self._validate_generated_output(plan, generated)
                 review = await self.reviewer.review(request, generated, memory_context=memory_context)
             if not review.approved:
-                raise OrchestrationError(
-                    "The automatic Vercel fix did not pass review: " + review.summary
-                )
+                blocking_issues = [
+                    issue for issue in review.issues if issue.severity in ("blocker", "high")
+                ]
+                if blocking_issues and debug_attempt >= max_debug_attempts - 1:
+                    raise OrchestrationError(
+                        "The automatic Vercel fix did not pass review: " + review.summary
+                    )
 
         raise OrchestrationError("The task did not reach a terminal state")
 
@@ -731,5 +765,6 @@ class Orchestrator:
             secret_markers = ("ghp_", "github_pat_", "AIzaSy", "-----BEGIN PRIVATE KEY-----")
             if any(marker in item.content for marker in secret_markers):
                 raise OrchestrationError(f"Refusing to commit a likely secret in {item.filepath}")
-        if any(not item.content.strip() for item in generated.files):
-            raise OrchestrationError("Coder returned an empty file")
+        for item in generated.files:
+            if not item.content.strip():
+                raise OrchestrationError(f"Coder returned an empty file for '{item.filepath}'")

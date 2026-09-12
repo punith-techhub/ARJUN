@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import posixpath
+import shutil
+import tempfile
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -59,7 +62,26 @@ class GitHubService:
     def _get_repository(self) -> Any:
         """Resolve the configured repository and fail early with a useful error."""
         if self.repository is None:
-            self.repository = self.client.get_repo(self.settings.github_repo)
+            if not self.settings.github_repo:
+                raise ValueError(
+                    "GITHUB_REPO is not configured in your environment. "
+                    "Please set GITHUB_REPO=your_username/your_repo in Render environment variables."
+                )
+            try:
+                self.repository = self.client.get_repo(self.settings.github_repo)
+            except GithubException as error:
+                if error.status == 404:
+                    raise ValueError(
+                        f"GitHub repository '{self.settings.github_repo}' was not found. "
+                        "Check that the repo exists and your GITHUB_TOKEN has access to it."
+                    ) from error
+                if error.status in {401, 403}:
+                    raise ValueError(
+                        f"GitHub authentication failed ({error.status}). "
+                        "Check that your GITHUB_TOKEN is valid and has 'repo' permissions."
+                    ) from error
+                msg = getattr(error, "data", {}).get("message", str(error)) if isinstance(getattr(error, "data", None), dict) else str(error)
+                raise ValueError(f"GitHub error accessing '{self.settings.github_repo}': {msg}") from error
         return self.repository
 
     def _read_branch(self, repo: Any) -> Any:
@@ -69,20 +91,30 @@ class GitHubService:
         except GithubException as error:
             if error.status != 404:
                 raise
-            return repo.get_branch(self.settings.default_branch)
+            try:
+                return repo.get_branch(self.settings.default_branch)
+            except GithubException as base_err:
+                if base_err.status == 404:
+                    return None
+                raise
 
     async def _repository_context(self) -> str:
         """Return a bounded repository tree snapshot and optionally a Graphify architecture report."""
         repo = self._get_repository()
         branch = self._read_branch(repo)
+        if branch is None:
+            return "Empty repository (no commits or files yet)."
         
         # Always get the standard file list for exact file paths
-        tree = repo.get_git_tree(branch.commit.sha, recursive=True)
-        paths = [
-            item.path
-            for item in tree.tree
-            if item.type == "blob" and item.path
-        ][:250]
+        try:
+            tree = repo.get_git_tree(branch.commit.sha, recursive=True)
+            paths = [
+                item.path
+                for item in tree.tree
+                if item.type == "blob" and item.path
+            ][:250]
+        except Exception:
+            return "Empty repository (no commits or files yet)."
         
         suffix = "\n... (tree truncated at 250 files)" if len(tree.tree) > 250 else ""
         standard_context = (
@@ -96,11 +128,6 @@ class GitHubService:
         if len(tree.tree) < 20:
             return standard_context
             
-        import tempfile
-        import shutil
-        import os
-        import asyncio
-        
         graphify_cli = "graphify"
         has_graphify = shutil.which(graphify_cli) is not None
         
@@ -175,7 +202,26 @@ class GitHubService:
     def _ensure_branch_sync(self):
         """Fetch current refs and create the agent branch from the configured base if needed."""
         repo = self._get_repository()
-        base = repo.get_branch(self.settings.default_branch)
+        try:
+            base = repo.get_branch(self.settings.default_branch)
+        except GithubException as base_err:
+            if base_err.status == 404:
+                # Repo is brand new and completely empty! Initialize default branch with an initial commit.
+                try:
+                    repo.create_file(
+                        path="README.md",
+                        message="Initial commit from Arjun",
+                        content=f"# {repo.name}\n\nCreated by Arjun.\n",
+                        branch=self.settings.default_branch,
+                    )
+                    base = repo.get_branch(self.settings.default_branch)
+                except Exception:
+                    raise ValueError(
+                        f"Repository '{repo.full_name}' is empty and could not be initialized with default branch '{self.settings.default_branch}'."
+                    ) from base_err
+            else:
+                raise
+
         try:
             branch = repo.get_branch(self.settings.agent_working_branch)
         except GithubException as error:
@@ -246,10 +292,14 @@ class GitHubService:
         private: bool,
     ) -> GitHubRepositoryCreation:
         """Create and initialize a repository under the configured GitHub owner."""
-        owner, _ = self.settings.github_repo.split("/", 1)
         authenticated_user = self.client.get_user()
+        if "/" in self.settings.github_repo:
+            owner = self.settings.github_repo.split("/", 1)[0]
+        else:
+            owner = authenticated_user.login
+        target_owner = authenticated_user.login
         try:
-            if authenticated_user.login.casefold() == owner.casefold():
+            if not owner or authenticated_user.login.casefold() == owner.casefold():
                 repository = authenticated_user.create_repo(
                     name=name,
                     description=description[:350],
@@ -257,18 +307,36 @@ class GitHubService:
                     auto_init=True,
                 )
             else:
-                organization = self.client.get_organization(owner)
-                repository = organization.create_repo(
-                    name=name,
-                    description=description[:350],
-                    private=private,
-                    auto_init=True,
-                )
+                try:
+                    organization = self.client.get_organization(owner)
+                    repository = organization.create_repo(
+                        name=name,
+                        description=description[:350],
+                        private=private,
+                        auto_init=True,
+                    )
+                    target_owner = owner
+                except GithubException as org_err:
+                    if org_err.status in {403, 404}:
+                        # owner is not an organization or token lacks org permissions;
+                        # safely fall back to creating the repository under the authenticated user
+                        target_owner = authenticated_user.login
+                        repository = authenticated_user.create_repo(
+                            name=name,
+                            description=description[:350],
+                            private=private,
+                            auto_init=True,
+                        )
+                    else:
+                        raise
         except GithubException as exc:
             # 422 "name already exists on this account" — the repo is already there.
             # Fetch and reuse it instead of propagating the error.
             if exc.status == 422:
-                repository = self.client.get_repo(f"{owner}/{name}")
+                try:
+                    repository = self.client.get_repo(f"{target_owner}/{name}")
+                except Exception:
+                    repository = self.client.get_repo(f"{authenticated_user.login}/{name}")
             else:
                 raise
         return GitHubRepositoryCreation(

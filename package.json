@@ -1,0 +1,21 @@
+{
+  "name": "arjun",
+  "version": "1.0.0",
+  "description": "Arjun is a Telegram-based autonomous software delivery agent. Send a text or voice request such as “build a full-stack booking app” or “update the authentication flow in my existing app”; it routes the request to a new or registered project, creates a new GitHub repository when needed, plans the architecture, generates complete code, reviews it, creates its working branch, runs a remote Vercel build, promotes the verified commit to production, and returns the live URL.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/punith-techhub/ARJUN.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/punith-techhub/ARJUN/issues"
+  },
+  "homepage": "https://github.com/punith-techhub/ARJUN#readme"
+}
