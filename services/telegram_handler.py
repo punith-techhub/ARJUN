@@ -281,16 +281,20 @@ class TelegramHandler:
             try:
                 await current_status.edit_text(err_msg)
             except Exception:
-                pass
-            await message.reply_text(err_msg)
-        except Exception:
+                await message.reply_text(err_msg)
+            else:
+                if questions_asked or current_status != status:
+                    await message.reply_text(err_msg)
+        except Exception as error:
             logger.exception("Unexpected task failure")
-            err_msg = "❌ Unexpected failure. No completion was reported; check the worker logs."
+            err_msg = f"❌ Unexpected failure: {error}"
             try:
                 await current_status.edit_text(err_msg)
             except Exception:
-                pass
-            await message.reply_text(err_msg)
+                await message.reply_text(err_msg)
+            else:
+                if questions_asked or current_status != status:
+                    await message.reply_text(err_msg)
 
     async def _ask_user(self, update: Update, prompt: str, secret: bool) -> str:
         """Send a blocking question and wait for the user's next authorized message."""
