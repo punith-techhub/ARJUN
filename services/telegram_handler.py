@@ -201,11 +201,31 @@ class TelegramHandler:
                 except Exception:
                     logger.debug("Could not send voice progress acknowledgement", exc_info=True)
 
+        current_status = status
+        questions_asked = False
+        post_bottom_after_question = True
+
+        async def ask_user_wrapped(prompt: str, secret: bool) -> str:
+            nonlocal questions_asked
+            questions_asked = True
+            return await self._ask_user(update, prompt, secret)
+
         async def progress(text: str) -> None:
+            nonlocal current_status, post_bottom_after_question
+            if questions_asked and post_bottom_after_question:
+                post_bottom_after_question = False
+                try:
+                    current_status = await message.reply_text(text)
+                    return
+                except Exception:
+                    pass
             try:
-                await status.edit_text(text)
+                await current_status.edit_text(text)
             except Exception:
-                logger.debug("Could not edit Telegram progress message", exc_info=True)
+                try:
+                    current_status = await message.reply_text(text)
+                except Exception:
+                    logger.debug("Could not update Telegram progress message", exc_info=True)
 
         if not request.strip():
             await status.edit_text("❌ Please provide a non-empty coding request.")
@@ -217,7 +237,7 @@ class TelegramHandler:
                 progress=progress,
                 user_id=user.id if user is not None else None,
                 ask_user=(
-                    (lambda prompt, secret: self._ask_user(update, prompt, secret))
+                    ask_user_wrapped
                     if user is not None
                     else None
                 ),
@@ -240,15 +260,37 @@ class TelegramHandler:
                 lines.append(f"⚠️ Vercel state: {result.deployment.state}")
             if github.file_urls:
                 lines.append("Files:\n" + "\n".join(f"• {url}" for url in github.file_urls))
-            await status.edit_text("\n".join(lines))
+            final_message = "\n".join(lines)
+            try:
+                await current_status.edit_text(final_message)
+            except Exception:
+                pass
+            if questions_asked or current_status != status:
+                await message.reply_text(final_message)
         except ChatResponse as response:
-            await status.edit_text(str(response))
+            resp_str = str(response)
+            try:
+                await current_status.edit_text(resp_str)
+            except Exception:
+                pass
+            if questions_asked or current_status != status:
+                await message.reply_text(resp_str)
         except (LLMAgentError, OrchestrationError, InteractionTimeout, ValueError) as error:
             logger.exception("Task failed")
-            await status.edit_text(f"❌ Task failed safely: {error}")
+            err_msg = f"❌ Task failed safely: {error}"
+            try:
+                await current_status.edit_text(err_msg)
+            except Exception:
+                pass
+            await message.reply_text(err_msg)
         except Exception:
             logger.exception("Unexpected task failure")
-            await status.edit_text("❌ Unexpected failure. No completion was reported; check the worker logs.")
+            err_msg = "❌ Unexpected failure. No completion was reported; check the worker logs."
+            try:
+                await current_status.edit_text(err_msg)
+            except Exception:
+                pass
+            await message.reply_text(err_msg)
 
     async def _ask_user(self, update: Update, prompt: str, secret: bool) -> str:
         """Send a blocking question and wait for the user's next authorized message."""
@@ -275,7 +317,7 @@ class TelegramHandler:
                 await message.delete()
                 await message.reply_text("✅ Credential message received and encrypted. Continuing...")
             else:
-                await message.reply_text("✅ Answer received. Continuing...")
+                await message.reply_text("✅ Answer received! Generating code and pushing to GitHub...")
         except Exception:
             logger.debug("Could not acknowledge or delete an interaction response", exc_info=True)
         return True

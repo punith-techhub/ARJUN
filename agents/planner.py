@@ -142,37 +142,39 @@ class PlannerAgent:
         
         # New Brain Expansion Phase: Pre-planning investigation with Antigravity SDK
         investigation_notes = ""
-        try:
-            from google.antigravity import Agent, LocalAgentConfig, CapabilitiesConfig
-            import logging
-            
-            import os
-            
-            # Spin up an Antigravity Agent with MCP tools for deep investigation
-            mcp_path = os.path.join(os.getcwd(), "mcp_config.json")
-            config = LocalAgentConfig(
-                system_instructions=(
-                    "You are an architecture investigator. Analyze the user request and repository context. "
-                    "Use your tools (like Figma MCP or sequential-thinking) to break down the problem. "
-                    "Output brief architectural notes to guide the JSON code generation phase."
-                ),
-                capabilities=CapabilitiesConfig(mcp_config_path=mcp_path if os.path.exists(mcp_path) else None)
-            )
-            async with Agent(config) as mcp_agent:
-                inv_prompt = f"REQUEST:\n{request}\n\nREPO:\n{repository_context}\n\nInvestigate and summarize key findings."
-                response = await mcp_agent.chat(inv_prompt)
+        gemini_key = os.getenv("GEMINI_API_KEY", "")
+        if not gemini_key and self.base.settings.gemini_api_keys:
+            gemini_key = self.base.settings.gemini_api_keys[0]
+        if gemini_key and gemini_key.startswith("AIza"):
+            os.environ["GEMINI_API_KEY"] = gemini_key
+            try:
+                from google.antigravity import Agent, LocalAgentConfig, CapabilitiesConfig
+                import os
                 
-                # Stream the response tokens
-                notes_chunks = []
-                async for token in response:
-                    notes_chunks.append(token)
-                investigation_notes = "".join(notes_chunks)
-        except ImportError:
-            pass # Fallback if google-antigravity SDK is not installed yet
-        except Exception as e:
-            # Log but don't block the build if MCP investigation fails
-            import logging
-            logging.getLogger(__name__).warning(f"MCP Investigation failed: {e}")
+                # Spin up an Antigravity Agent with MCP tools for deep investigation
+                mcp_path = os.path.join(os.getcwd(), "mcp_config.json")
+                config = LocalAgentConfig(
+                    api_key=gemini_key,
+                    system_instructions=(
+                        "You are an architecture investigator. Analyze the user request and repository context. "
+                        "Use your tools (like Figma MCP or sequential-thinking) to break down the problem. "
+                        "Output brief architectural notes to guide the JSON code generation phase."
+                    ),
+                    capabilities=CapabilitiesConfig(mcp_config_path=mcp_path if os.path.exists(mcp_path) else None)
+                )
+                async with Agent(config) as mcp_agent:
+                    inv_prompt = f"REQUEST:\n{request}\n\nREPO:\n{repository_context}\n\nInvestigate and summarize key findings."
+                    response = await mcp_agent.chat(inv_prompt)
+                    
+                    notes_chunks = []
+                    async for token in response:
+                        notes_chunks.append(token)
+                    investigation_notes = "".join(notes_chunks)
+            except ImportError:
+                pass
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"MCP Investigation failed: {e}")
 
         prompt = (
             f"USER REQUEST:\n{request}\n\n"

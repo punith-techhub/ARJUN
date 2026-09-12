@@ -27,17 +27,18 @@ DEFAULT_GEMINI_MODELS = (
     "gemini-1.5-flash",
 )
 DEFAULT_GROQ_MODELS = (
+    "groq/compound",
     "openai/gpt-oss-120b",
     "qwen/qwen3.8-27b",
+    "groq/compound-mini",
     "openai/gpt-oss-20b",
-    "groq/compound",
-    "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant",
+    "qwen/qwen3.6-27b",
 )
 DEFAULT_OPENROUTER_MODELS = (
-    "meta-llama/llama-3.3-70b-instruct:free",
+    "inclusionai/ling-3.0-flash-vl:free",
+    "nex-agi/nex-n2.5-mini:free",
     "google/gemini-2.0-flash-exp:free",
-    "qwen/qwen-2.5-coder-32b-instruct:free",
+    "meta-llama/llama-3.3-70b-instruct:free",
 )
 
 

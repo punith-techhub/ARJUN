@@ -292,10 +292,19 @@ class BaseAgent:
                         )
                         continue
 
-                    if status in {400, 404}:
-                        self.pool.record_cooldown(target, 3600.0, reason=f"InvalidModelOrKey ({status})")
+                    if status == 404:
+                        self.pool.record_cooldown(target, 3600.0, reason=f"ModelNotFound ({status})")
                         logger.warning(
-                            "Target %s model not found or key invalid (%s); rotating to next target.",
+                            "Target %s model not found (404); disabling target and rotating: %s",
+                            target.identifier,
+                            error,
+                        )
+                        continue
+
+                    if status == 400:
+                        self.pool.record_cooldown(target, 15.0, reason=f"BadRequest ({status})")
+                        logger.warning(
+                            "Target %s 400 Bad Request (%s); cooling down for 15s and rotating to next target.",
                             target.identifier,
                             error,
                         )
