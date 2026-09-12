@@ -248,6 +248,7 @@ class GitHubService:
         """Create and initialize a repository under the configured GitHub owner."""
         owner, _ = self.settings.github_repo.split("/", 1)
         authenticated_user = self.client.get_user()
+        target_owner = authenticated_user.login
         try:
             if authenticated_user.login.casefold() == owner.casefold():
                 repository = authenticated_user.create_repo(
@@ -257,18 +258,36 @@ class GitHubService:
                     auto_init=True,
                 )
             else:
-                organization = self.client.get_organization(owner)
-                repository = organization.create_repo(
-                    name=name,
-                    description=description[:350],
-                    private=private,
-                    auto_init=True,
-                )
+                try:
+                    organization = self.client.get_organization(owner)
+                    repository = organization.create_repo(
+                        name=name,
+                        description=description[:350],
+                        private=private,
+                        auto_init=True,
+                    )
+                    target_owner = owner
+                except GithubException as org_err:
+                    if org_err.status in {403, 404}:
+                        # owner is not an organization or token lacks org permissions;
+                        # safely fall back to creating the repository under the authenticated user
+                        target_owner = authenticated_user.login
+                        repository = authenticated_user.create_repo(
+                            name=name,
+                            description=description[:350],
+                            private=private,
+                            auto_init=True,
+                        )
+                    else:
+                        raise
         except GithubException as exc:
             # 422 "name already exists on this account" — the repo is already there.
             # Fetch and reuse it instead of propagating the error.
             if exc.status == 422:
-                repository = self.client.get_repo(f"{owner}/{name}")
+                try:
+                    repository = self.client.get_repo(f"{target_owner}/{name}")
+                except Exception:
+                    repository = self.client.get_repo(f"{authenticated_user.login}/{name}")
             else:
                 raise
         return GitHubRepositoryCreation(
