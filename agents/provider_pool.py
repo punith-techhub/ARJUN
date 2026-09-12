@@ -20,8 +20,20 @@ GEMINI_OPENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/opena
 GROQ_OPENAI_BASE_URL = "https://api.groq.com/openai/v1"
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
-DEFAULT_GEMINI_MODELS = ("gemini-2.0-flash", "gemini-1.5-flash")
-DEFAULT_GROQ_MODELS = ("llama-3.3-70b-versatile", "llama-3.1-8b-instant")
+DEFAULT_GEMINI_MODELS = (
+    "gemini-2.5-flash",
+    "gemini-3.6-flash",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+)
+DEFAULT_GROQ_MODELS = (
+    "openai/gpt-oss-120b",
+    "qwen/qwen3.8-27b",
+    "openai/gpt-oss-20b",
+    "groq/compound",
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+)
 DEFAULT_OPENROUTER_MODELS = (
     "meta-llama/llama-3.3-70b-instruct:free",
     "google/gemini-2.0-flash-exp:free",
@@ -84,9 +96,16 @@ class LLMProviderPool:
 
         # 2. Groq Keys
         if self.settings.groq_api_keys:
-            groq_models = [m for m in custom_models if any(x in m.lower() for x in ("llama", "mixtral", "gemma"))]
+            groq_models = [
+                m for m in custom_models 
+                if any(x in m.lower() for x in ("gpt-oss", "qwen", "compound", "llama", "mixtral", "gemma"))
+            ]
             if not groq_models:
                 groq_models = list(DEFAULT_GROQ_MODELS)
+            else:
+                for def_m in DEFAULT_GROQ_MODELS:
+                    if def_m not in groq_models:
+                        groq_models.append(def_m)
             for model in groq_models:
                 for key in self.settings.groq_api_keys:
                     targets.append(

@@ -292,6 +292,15 @@ class BaseAgent:
                         )
                         continue
 
+                    if status in {400, 404}:
+                        self.pool.record_cooldown(target, 3600.0, reason=f"InvalidModelOrKey ({status})")
+                        logger.warning(
+                            "Target %s model not found or key invalid (%s); rotating to next target.",
+                            target.identifier,
+                            error,
+                        )
+                        continue
+
                     if is_out_limit:
                         token_budget = min(token_budget * 2, _HARD_MAX_TOKENS)
                         logger.warning(
