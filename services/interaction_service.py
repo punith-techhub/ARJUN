@@ -29,8 +29,9 @@ class InteractionBroker:
     async def open(self, user_id: int, *, secret: bool) -> None:
         """Register a question before its Telegram prompt is sent."""
         async with self._lock:
-            if user_id in self._pending:
-                raise RuntimeError("This user already has an unanswered Arjun question")
+            old = self._pending.pop(user_id, None)
+            if old is not None and not old.future.done():
+                old.future.cancel()
             self._pending[user_id] = PendingQuestion(
                 future=asyncio.get_running_loop().create_future(),
                 secret=secret,
@@ -48,19 +49,32 @@ class InteractionBroker:
             async with self._lock:
                 self._pending.pop(user_id, None)
             raise InteractionTimeout("Timed out waiting for the Telegram answer") from error
+        except (asyncio.CancelledError, Exception):
+            async with self._lock:
+                self._pending.pop(user_id, None)
+            raise
 
     async def submit(self, user_id: int, response: str) -> bool:
         """Deliver a Telegram response and return whether it contained a secret."""
         async with self._lock:
-            pending = self._pending.get(user_id)
+            pending = self._pending.pop(user_id, None)
             if pending is None or pending.future.done():
                 return False
             pending.future.set_result(response)
-            self._pending.pop(user_id, None)
             return pending.secret
+
+    async def cancel(self, user_id: int) -> bool:
+        """Cancel any pending question for a user."""
+        async with self._lock:
+            pending = self._pending.pop(user_id, None)
+            if pending is not None and not pending.future.done():
+                pending.future.cancel()
+                return True
+            return False
 
     async def is_pending(self, user_id: int) -> bool:
         """Return whether the next message should be treated as an answer."""
         async with self._lock:
-            return user_id in self._pending
+            pending = self._pending.get(user_id)
+            return pending is not None and not pending.future.done()
 

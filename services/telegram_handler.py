@@ -52,9 +52,24 @@ class TelegramHandler:
         if not self.is_authorized(update):
             await self._reject_unauthorized(update)
             return
+        user = update.effective_user
+        if user is not None:
+            await self.interactions.cancel(user.id)
         await update.effective_message.reply_text(
             "⚡ Arjun is ready. Send a coding request as text, a voice note, or a .txt file."
         )
+
+    async def cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /cancel to abort any waiting question."""
+        del context
+        if not self.is_authorized(update):
+            await self._reject_unauthorized(update)
+            return
+        user = update.effective_user
+        if user is not None and await self.interactions.cancel(user.id):
+            await update.effective_message.reply_text("🛑 Cancelled the pending question.")
+        else:
+            await update.effective_message.reply_text("ℹ️ No active question to cancel.")
 
     async def handle_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle a free-form text developer request."""

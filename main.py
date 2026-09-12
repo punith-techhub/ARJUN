@@ -56,14 +56,16 @@ def build_application() -> tuple[Application, BaseAgent, GitHubService]:
     application = (
         Application.builder()
         .token(settings.telegram_bot_token)
+        .concurrent_updates(True)
         .post_shutdown(shutdown)
         .build()
     )
-    application.add_handler(CommandHandler("start", handler.start))
-    application.add_handler(CommandHandler("help", handler.start))
-    application.add_handler(MessageHandler(filters.VOICE, handler.handle_voice))
-    application.add_handler(MessageHandler(filters.Document.ALL, handler.handle_document))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handler.handle_text))
+    application.add_handler(CommandHandler("start", handler.start, block=False))
+    application.add_handler(CommandHandler("help", handler.start, block=False))
+    application.add_handler(CommandHandler("cancel", handler.cancel, block=False))
+    application.add_handler(MessageHandler(filters.VOICE, handler.handle_voice, block=False))
+    application.add_handler(MessageHandler(filters.Document.ALL, handler.handle_document, block=False))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handler.handle_text, block=False))
     application.add_error_handler(handler.error_handler)
     return application, base_agent, github
 
