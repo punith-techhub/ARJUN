@@ -118,38 +118,54 @@ class LLMProviderPool:
                     )
 
         # 4. Generic Keys (LLM_API_KEYS / LLM_API_KEY)
-        generic_keys = list(self.settings.llm_api_keys)
-        if self.settings.llm_api_key and self.settings.llm_api_key not in generic_keys:
+        handled_keys = set(self.settings.gemini_api_keys) | set(self.settings.groq_api_keys) | set(self.settings.openrouter_api_keys)
+        generic_keys = [
+            k for k in self.settings.llm_api_keys
+            if k not in handled_keys and k not in {"not_needed_for_omniroute", "replace_with_api_key", ""}
+        ]
+        if (
+            self.settings.llm_api_key
+            and self.settings.llm_api_key not in handled_keys
+            and self.settings.llm_api_key not in generic_keys
+            and self.settings.llm_api_key not in {"not_needed_for_omniroute", "replace_with_api_key", ""}
+        ):
             generic_keys.insert(0, self.settings.llm_api_key)
 
         for key in generic_keys:
-            # Auto-detect provider by key prefix if base_url is not set
             base_url = self.settings.llm_base_url
+            if base_url and any(x in base_url for x in ("20128", "omniroute")):
+                base_url = None
+
             provider = "custom"
             is_audio = False
             audio_model = "whisper-1"
 
-            if not base_url:
-                if key.startswith("gsk_"):
-                    provider = "groq"
-                    base_url = GROQ_OPENAI_BASE_URL
-                    is_audio = True
-                    audio_model = "whisper-large-v3"
-                elif key.startswith("AIza"):
-                    provider = "gemini"
-                    base_url = GEMINI_OPENAI_BASE_URL
-                elif key.startswith("sk-or-"):
-                    provider = "openrouter"
-                    base_url = OPENROUTER_BASE_URL
+            if key.startswith("gsk_"):
+                provider = "groq"
+                base_url = GROQ_OPENAI_BASE_URL
+                is_audio = True
+                audio_model = "whisper-large-v3"
+            elif key.startswith("AIza"):
+                provider = "gemini"
+                base_url = GEMINI_OPENAI_BASE_URL
+            elif key.startswith("sk-or-"):
+                provider = "openrouter"
+                base_url = OPENROUTER_BASE_URL
 
             # Determine models for this generic key
-            models = custom_models
-            if provider == "groq" and not any(any(x in m.lower() for x in ("llama", "mixtral")) for m in models):
-                models = list(DEFAULT_GROQ_MODELS)
-            elif provider == "gemini" and not any("gemini" in m.lower() for m in models):
-                models = list(DEFAULT_GEMINI_MODELS)
-            elif provider == "openrouter" and not any("/" in m for m in models):
-                models = list(DEFAULT_OPENROUTER_MODELS)
+            models = list(custom_models)
+            if provider == "groq":
+                models = [m for m in models if any(x in m.lower() for x in ("llama", "mixtral", "gemma"))]
+                if not models:
+                    models = list(DEFAULT_GROQ_MODELS)
+            elif provider == "gemini":
+                models = [m for m in models if "gemini" in m.lower()]
+                if not models:
+                    models = list(DEFAULT_GEMINI_MODELS)
+            elif provider == "openrouter":
+                models = [m for m in models if "/" in m or ":free" in m]
+                if not models:
+                    models = list(DEFAULT_OPENROUTER_MODELS)
 
             for model in models:
                 targets.append(

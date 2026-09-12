@@ -176,7 +176,8 @@ class BaseAgent:
             )
         if status == 404 or "not found" in text:
             return status, (
-                "The configured LLM model or API endpoint was not found. Check LLM_MODEL."
+                f"The configured LLM model or API endpoint was not found ({error}). "
+                "Check that your LLM_MODEL matches your provider (e.g. 'gemini-2.0-flash' for Gemini, 'llama-3.3-70b-versatile' for Groq)."
             )
         if cls._is_tpm_error(error) or status == 429 or any(
             marker in text for marker in ("quota", "resource_exhausted", "rate limit")

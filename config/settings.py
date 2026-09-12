@@ -98,23 +98,64 @@ class Settings(BaseModel):
         if auto_promote and working_branch == default_branch:
             working_branch = "arjun-builds"
 
-        llm_api_keys = csv_values("LLM_API_KEYS")
+        raw_llm_keys = [
+            k for k in csv_values("LLM_API_KEYS")
+            if k not in {"not_needed_for_omniroute", "replace_with_api_key", ""}
+        ]
         llm_key = os.getenv("LLM_API_KEY", "").strip()
-        if llm_key and llm_key not in llm_api_keys:
-            llm_api_keys = (llm_key,) + llm_api_keys
+        if llm_key in {"not_needed_for_omniroute", "replace_with_api_key"}:
+            llm_key = ""
+        if llm_key and llm_key not in raw_llm_keys:
+            raw_llm_keys.insert(0, llm_key)
+        llm_api_keys = tuple(raw_llm_keys)
 
-        gemini_keys = csv_values("GEMINI_API_KEYS", os.getenv("GEMINI_API_KEY", ""))
-        groq_keys = csv_values("GROQ_API_KEYS", os.getenv("GROQ_API_KEY", ""))
-        openrouter_keys = csv_values("OPENROUTER_API_KEYS", os.getenv("OPENROUTER_API_KEY", ""))
+        gemini_keys = tuple(
+            k for k in csv_values("GEMINI_API_KEYS", os.getenv("GEMINI_API_KEY", ""))
+            if k not in {"not_needed_for_omniroute", "replace_with_api_key", ""}
+        )
+        groq_keys = tuple(
+            k for k in csv_values("GROQ_API_KEYS", os.getenv("GROQ_API_KEY", ""))
+            if k not in {"not_needed_for_omniroute", "replace_with_api_key", ""}
+        )
+        openrouter_keys = tuple(
+            k for k in csv_values("OPENROUTER_API_KEYS", os.getenv("OPENROUTER_API_KEY", ""))
+            if k not in {"not_needed_for_omniroute", "replace_with_api_key", ""}
+        )
 
         models = csv_values("LLM_MODELS")
-        model = os.getenv("LLM_MODEL", "").strip()
-        if not model and models:
+        user_model = os.getenv("LLM_MODEL", "").strip()
+        has_openai = any(
+            not (k.startswith("AIza") or k.startswith("gsk_") or k.startswith("sk-or-"))
+            for k in llm_api_keys
+        )
+        if not has_openai and (user_model == "gpt-4o-mini" or not user_model):
+            if gemini_keys or any(k.startswith("AIza") for k in llm_api_keys):
+                model = "gemini-2.0-flash"
+                if not models:
+                    models = ("gemini-2.0-flash", "gemini-1.5-flash")
+            elif groq_keys or any(k.startswith("gsk_") for k in llm_api_keys):
+                model = "llama-3.3-70b-versatile"
+                if not models:
+                    models = ("llama-3.3-70b-versatile", "llama-3.1-8b-instant")
+            elif openrouter_keys or any(k.startswith("sk-or-") for k in llm_api_keys):
+                model = "meta-llama/llama-3.3-70b-instruct:free"
+                if not models:
+                    models = ("meta-llama/llama-3.3-70b-instruct:free", "google/gemini-2.0-flash-exp:free")
+            else:
+                model = "gpt-4o-mini"
+        elif user_model:
+            model = user_model
+        elif models:
             model = models[0]
-        elif not model:
+        else:
             model = "gpt-4o-mini"
+
         if model and model not in models:
             models = (model,) + models
+
+        base_url = os.getenv("LLM_BASE_URL", "").strip() or None
+        if base_url and any(x in base_url for x in ("20128", "omniroute")):
+            base_url = None
 
         primary_key = llm_key or (llm_api_keys[0] if llm_api_keys else "")
         if not primary_key:
@@ -132,7 +173,7 @@ class Settings(BaseModel):
             llm_api_keys=llm_api_keys,
             llm_model=model,
             llm_models=models,
-            llm_base_url=os.getenv("LLM_BASE_URL"),
+            llm_base_url=base_url,
             gemini_api_keys=gemini_keys,
             groq_api_keys=groq_keys,
             openrouter_api_keys=openrouter_keys,
