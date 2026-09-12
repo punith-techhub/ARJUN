@@ -89,13 +89,29 @@ def main() -> None:
     # Keep provider failures in our own sanitized handlers instead.
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
-    application, base_agent, github = build_application()
-    try:
-        application.run_polling(allowed_updates=["message"])
-    finally:
-        # run_polling owns the event loop; shutdown is handled by PTB. The clients are
-        # explicitly closed for deployments that invoke main under a custom runner.
-        del base_agent, github
+
+    import time
+    while True:
+        try:
+            application, base_agent, github = build_application()
+            try:
+                application.run_polling(
+                    allowed_updates=["message"],
+                    drop_pending_updates=True,
+                    bootstrap_retries=10,
+                )
+                break
+            finally:
+                del base_agent, github
+        except Exception as error:
+            if "conflict" in str(error).lower():
+                logging.getLogger(__name__).warning(
+                    "Telegram polling conflict detected (previous deployment container is shutting down). "
+                    "Waiting 6 seconds before reconnecting..."
+                )
+                time.sleep(6)
+                continue
+            raise
 
 
 if __name__ == "__main__":
