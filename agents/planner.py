@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -149,7 +150,6 @@ class PlannerAgent:
             os.environ["GEMINI_API_KEY"] = gemini_key
             try:
                 from google.antigravity import Agent, LocalAgentConfig, CapabilitiesConfig
-                import os
                 
                 # Spin up an Antigravity Agent with MCP tools for deep investigation
                 mcp_path = os.path.join(os.getcwd(), "mcp_config.json")

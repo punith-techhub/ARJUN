@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import logging
+import os
+import threading
+import time
+from http.server import HTTPServer, SimpleHTTPRequestHandler
 
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 
@@ -78,9 +82,6 @@ def main() -> None:
     )
 
     # Start a dummy HTTP server so Render "Web Service" health checks pass
-    import os
-    import threading
-    from http.server import HTTPServer, SimpleHTTPRequestHandler
     port = int(os.environ.get("PORT", 8080))
     threading.Thread(
         target=lambda: HTTPServer(("0.0.0.0", port), SimpleHTTPRequestHandler).serve_forever(),
@@ -92,7 +93,6 @@ def main() -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
 
-    import time
     while True:
         try:
             application, base_agent, github = build_application()

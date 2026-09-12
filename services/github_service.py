@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import posixpath
+import shutil
+import tempfile
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -125,11 +128,6 @@ class GitHubService:
         if len(tree.tree) < 20:
             return standard_context
             
-        import tempfile
-        import shutil
-        import os
-        import asyncio
-        
         graphify_cli = "graphify"
         has_graphify = shutil.which(graphify_cli) is not None
         
