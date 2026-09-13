@@ -15,13 +15,13 @@ from pydantic import BaseModel
 
 from config.settings import Settings
 from utils.parser import parse_json_response
-from .provider_pool import LLMProviderPool, LLMTarget
+from .provider_pool import LLMProviderPool, LLMTarget, TaskComplexity
 
 logger = logging.getLogger(__name__)
 ModelT = TypeVar("ModelT", bound=BaseModel)
 # Groq on-demand TPM is often 8000 and counts prompt + reserved max_tokens.
 _DEFAULT_MAX_TOKENS = 1024
-_HARD_MAX_TOKENS = 4096
+_HARD_MAX_TOKENS = 8192
 
 
 class LLMAgentError(RuntimeError):
@@ -96,6 +96,7 @@ class BaseAgent:
             for marker in (
                 "max completion tokens",
                 "json_validate_failed",
+                "failed to validate json",
                 "failed to generate json",
                 "ran out of completion tokens",
             )
@@ -205,6 +206,7 @@ class BaseAgent:
         response_mime_type: str | None = None,
         response_schema: Any = None,
         max_tokens: int = _DEFAULT_MAX_TOKENS,
+        complexity: TaskComplexity | None = None,
     ) -> str:
         """Generate text with multi-key rotation and multi-model fallback."""
         last_error: BaseException | None = None
@@ -234,8 +236,15 @@ class BaseAgent:
         else:
             messages.append({"role": "user", "content": str(contents)})
 
+        total_prompt_len = sum(len(str(m.get("content", ""))) for m in messages)
+        effective_complexity = complexity
+        if total_prompt_len > 6000 and effective_complexity == TaskComplexity.LIGHT:
+            effective_complexity = TaskComplexity.STANDARD
+
         for attempt in range(attempts):
-            candidates = await self.pool.get_candidate_targets()
+            candidates = await self.pool.get_candidate_targets(
+                complexity=effective_complexity,
+            ) if effective_complexity else await self.pool.get_candidate_targets()
             if not candidates:
                 raise LLMAgentError("No configured LLM targets or API keys available.")
 
@@ -243,9 +252,15 @@ class BaseAgent:
                 client = self.pool.get_client(target)
                 target_budget = token_budget
                 if target.provider == "gemini":
-                    target_budget = max(token_budget, min(max_tokens, 8192))
+                    target_budget = min(max(token_budget, 2048), 6144)
                 elif target.provider == "groq":
-                    target_budget = min(token_budget, _HARD_MAX_TOKENS)
+                    # Groq 120B and 27B models support up to 3500-4000 completion tokens safely
+                    target_budget = min(token_budget, 3500)
+                elif target.provider == "openrouter":
+                    target_budget = min(token_budget, 2500)
+
+                # Fast timeouts: fail fast on congested queues instead of hanging for 90s
+                req_timeout = 15.0 if target.provider == "groq" else (25.0 if target.provider == "openrouter" else 45.0)
 
                 try:
                     response = await client.chat.completions.create(
@@ -253,6 +268,7 @@ class BaseAgent:
                         messages=messages,
                         temperature=temperature,
                         max_tokens=target_budget,
+                        timeout=req_timeout,
                         **kwargs,
                     )
                     choice = response.choices[0]
@@ -272,11 +288,18 @@ class BaseAgent:
                     is_tpm = self._is_tpm_error(error)
                     is_out_limit = self._is_output_limit_error(error)
 
+                    if is_out_limit:
+                        token_budget = min(int(token_budget * 1.5), 6144)
+                        logger.warning(
+                            "LLM JSON/output truncated on %s; increasing max_tokens to %s and retrying.",
+                            target.identifier,
+                            token_budget,
+                        )
+                        continue
+
                     if is_tpm or status in {413, 429}:
                         cooldown = self.pool.parse_retry_delay(error, default_delay=45.0)
                         self.pool.record_cooldown(target, cooldown, reason=f"RateLimit/TPM ({status})")
-                        if is_tpm:
-                            token_budget = max(256, self._tpm_budget(error, token_budget))
                         logger.warning(
                             "Target %s rate-limited; immediately rotating to next key/model in pool.",
                             target.identifier,
@@ -307,15 +330,6 @@ class BaseAgent:
                             "Target %s 400 Bad Request (%s); cooling down for 15s and rotating to next target.",
                             target.identifier,
                             error,
-                        )
-                        continue
-
-                    if is_out_limit:
-                        token_budget = min(token_budget * 2, _HARD_MAX_TOKENS)
-                        logger.warning(
-                            "LLM JSON/output truncated on %s; increasing max_tokens to %s and retrying.",
-                            target.identifier,
-                            token_budget,
                         )
                         continue
 
@@ -357,6 +371,7 @@ class BaseAgent:
         response_model: type[ModelT],
         temperature: float = 0.1,
         max_tokens: int = _DEFAULT_MAX_TOKENS,
+        complexity: TaskComplexity | None = None,
     ) -> ModelT:
         """Generate, extract, and validate a JSON response against a Pydantic model."""
         schema_json = compact_model_schema(response_model)
@@ -378,6 +393,7 @@ class BaseAgent:
                     temperature=temperature,
                     response_mime_type="application/json",
                     max_tokens=token_budget,
+                    complexity=complexity,
                 )
             except LLMAgentError as error:
                 last_error = error

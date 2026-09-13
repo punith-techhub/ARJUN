@@ -34,13 +34,20 @@ def parse_json_response(value: str) -> Any:
         return try_load(cleaned)
     except Exception as original_error:
         decoder = json.JSONDecoder()
+        candidates: list[Any] = []
         for target in (cleaned, value):
-            for index, character in enumerate(target):
-                if character not in "[{":
-                    continue
-                try:
-                    parsed, _ = decoder.raw_decode(target[index:])
-                    return parsed
-                except json.JSONDecodeError:
-                    continue
+            # Prioritize JSON objects ({}) over arrays ([]) since all schema models are objects
+            for preferred_char in ("{", "["):
+                for index, character in enumerate(target):
+                    if character != preferred_char:
+                        continue
+                    try:
+                        parsed, _ = decoder.raw_decode(target[index:])
+                        if isinstance(parsed, dict):
+                            return parsed
+                        candidates.append(parsed)
+                    except json.JSONDecodeError:
+                        continue
+        if candidates:
+            return candidates[0]
         raise ValueError(f"No valid JSON object or array found in model response: {value[:200]}") from original_error

@@ -9,6 +9,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .base import BaseAgent
+from .provider_pool import TaskComplexity
 
 
 class PlannedFile(BaseModel):
@@ -187,10 +188,28 @@ class PlannerAgent:
         return await self.base.generate_json(
             prompt,
             response_model=TaskPlan,
-            max_tokens=1024,
+            max_tokens=3072,
+            complexity=TaskComplexity.HEAVY,
             system_instruction=(
                 "You are the Planner agent in a production software repository. "
                 "Analyze the developer request and plan a complete implementation. "
+                "CRITICAL - MODERN DESIGN & UI/UX EXCELLENCE: "
+                "Never plan primitive, unstyled 1990s HTML. Even when the user asks for a simple or static app/game, "
+                "mandate production-grade visuals and polish by default: "
+                "1. Styling & Assets: Plan Tailwind CSS CDN (<script src='https://cdn.tailwindcss.com'></script>), "
+                "Google Fonts (Inter/Outfit), and Lucide Icons (<script src='https://unpkg.com/lucide@latest'></script>). "
+                "Use sleek modern dark/light palettes (slate/zinc), glassmorphism (backdrop-blur), and responsive flex/grid. "
+                "2. Interactive Games: Mandate a smooth game loop (requestAnimationFrame), crisp canvas rendering, "
+                "retro/arcade HUD, procedural synth audio via browser native Web Audio API (AudioContext for flap, score, hit - zero external audio dependencies), "
+                "particle explosions, floating score text, pause menu, and localStorage high scores. "
+                "3. Mobile & Desktop: Ensure full mobile-touch and keyboard responsiveness. "
+                "CRITICAL - LEAN FILE ARCHITECTURE (SPEED & RELIABILITY): "
+                "For web apps, games, and static sites, keep the plan LEAN: exactly 2 to 3 files: "
+                "1. index.html (Tailwind CDN, Google Fonts, Lucide Icons, canvas/game container, HUD overlay, responsive layout). "
+                "2. app.js (complete game loop, canvas rendering, player controls, localStorage high scores, and procedural Web Audio API SFX). "
+                "3. (Optional) style.css only if custom CSS animations are needed beyond Tailwind. "
+                "DO NOT split a simple web app/game into 5+ separate files (like audio.js, hud.js, game.js) because cross-file mismatches cause review failures and slow builds. "
+                "2 cohesive files are 10x faster to generate and 100% bug-free. "
                 "CRITICAL - SIMPLICITY SIGNALS: If the user says 'simple', 'static', "
                 "'no database', 'no .env', 'no environment variables', 'no login', "
                 "'no backend', or 'plain HTML', you MUST plan a fully static implementation "
@@ -214,7 +233,7 @@ class PlannerAgent:
                 "the repository and make acceptance criteria and test strategy executable. "
                 "Add technology_decisions only for genuinely material choices with two or more "
                 "reasonable options; never ask the user about trivial implementation details. "
-                "Keep the plan compact: at most 6 files for a simple/static site, short notes, "
+                "Keep the plan compact: at most 3 files for a simple/static site or game, short notes, "
                 "and empty technology_decisions unless a real choice exists."
             ),
         )
@@ -236,6 +255,7 @@ class PlannerAgent:
             prompt,
             response_model=TechnologyDecisionResult,
             max_tokens=512,
+            complexity=TaskComplexity.STANDARD,
             system_instruction=(
                 "You are the architecture decision agent. Choose exactly one supplied option. "
                 "Compare compatibility with the current repository, security, operational "

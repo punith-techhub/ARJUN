@@ -1105,7 +1105,7 @@
       "file_type": "code",
       "norm_label": "get_settings()",
       "source_file": "config/settings.py",
-      "source_location": "L267"
+      "source_location": "L250"
     },
     {
       "id": "config_settings_settings_from_environment",
@@ -1657,7 +1657,7 @@
       "file_type": "code",
       "norm_label": ".close()",
       "source_file": "agents/provider_pool.py",
-      "source_location": "L337"
+      "source_location": "L334"
     },
     {
       "id": "agents_provider_pool_llmproviderpool_get_audio_target",
@@ -1669,7 +1669,7 @@
       "file_type": "code",
       "norm_label": ".get_audio_target()",
       "source_file": "agents/provider_pool.py",
-      "source_location": "L323"
+      "source_location": "L320"
     },
     {
       "id": "agents_provider_pool_llmproviderpool_get_candidate_targets",
@@ -1681,7 +1681,7 @@
       "file_type": "code",
       "norm_label": ".get_candidate_targets()",
       "source_file": "agents/provider_pool.py",
-      "source_location": "L244"
+      "source_location": "L241"
     },
     {
       "id": "agents_provider_pool_llmproviderpool_get_client",
@@ -1693,7 +1693,7 @@
       "file_type": "code",
       "norm_label": ".get_client()",
       "source_file": "agents/provider_pool.py",
-      "source_location": "L234"
+      "source_location": "L231"
     },
     {
       "id": "agents_provider_pool_llmproviderpool_init",
@@ -1717,7 +1717,7 @@
       "file_type": "code",
       "norm_label": ".parse_retry_delay()",
       "source_file": "agents/provider_pool.py",
-      "source_location": "L311"
+      "source_location": "L308"
     },
     {
       "id": "agents_provider_pool_llmproviderpool_record_cooldown",
@@ -1729,7 +1729,7 @@
       "file_type": "code",
       "norm_label": ".record_cooldown()",
       "source_file": "agents/provider_pool.py",
-      "source_location": "L298"
+      "source_location": "L295"
     },
     {
       "id": "agents_provider_pool_llmtarget_identifier",
@@ -3496,7 +3496,7 @@
       "source_location": "L13"
     },
     {
-      "id": "config_settings_rationale_268",
+      "id": "config_settings_rationale_251",
       "label": "Return the process-wide immutable-by-convention settings object.",
       "_origin": "ast",
       "community": 12,
@@ -3504,7 +3504,7 @@
       "file_type": "rationale",
       "norm_label": "return the process-wide immutable-by-convention settings object.",
       "source_file": "config/settings.py",
-      "source_location": "L268"
+      "source_location": "L251"
     },
     {
       "id": "config_settings_rationale_64",
@@ -4484,7 +4484,7 @@
       "source_location": ""
     },
     {
-      "id": "agents_provider_pool_rationale_235",
+      "id": "agents_provider_pool_rationale_232",
       "label": "Retrieve or construct a cached AsyncOpenAI client for a target.",
       "_origin": "ast",
       "community": 25,
@@ -4492,10 +4492,10 @@
       "file_type": "rationale",
       "norm_label": "retrieve or construct a cached asyncopenai client for a target.",
       "source_file": "agents/provider_pool.py",
-      "source_location": "L235"
+      "source_location": "L232"
     },
     {
-      "id": "agents_provider_pool_rationale_247",
+      "id": "agents_provider_pool_rationale_244",
       "label": "Return candidate targets, ordered by task complexity and availability.",
       "_origin": "ast",
       "community": 25,
@@ -4503,10 +4503,10 @@
       "file_type": "rationale",
       "norm_label": "return candidate targets, ordered by task complexity and availability.",
       "source_file": "agents/provider_pool.py",
-      "source_location": "L247"
+      "source_location": "L244"
     },
     {
-      "id": "agents_provider_pool_rationale_299",
+      "id": "agents_provider_pool_rationale_296",
       "label": "Mark a target in cooldown to prevent repeated failures.",
       "_origin": "ast",
       "community": 25,
@@ -4514,10 +4514,10 @@
       "file_type": "rationale",
       "norm_label": "mark a target in cooldown to prevent repeated failures.",
       "source_file": "agents/provider_pool.py",
-      "source_location": "L299"
+      "source_location": "L296"
     },
     {
-      "id": "agents_provider_pool_rationale_312",
+      "id": "agents_provider_pool_rationale_309",
       "label": "Extract retry-after seconds from error text or header if present.",
       "_origin": "ast",
       "community": 25,
@@ -4525,10 +4525,10 @@
       "file_type": "rationale",
       "norm_label": "extract retry-after seconds from error text or header if present.",
       "source_file": "agents/provider_pool.py",
-      "source_location": "L312"
+      "source_location": "L309"
     },
     {
-      "id": "agents_provider_pool_rationale_324",
+      "id": "agents_provider_pool_rationale_321",
       "label": "Get an audio-capable client and transcription model.",
       "_origin": "ast",
       "community": 25,
@@ -4536,10 +4536,10 @@
       "file_type": "rationale",
       "norm_label": "get an audio-capable client and transcription model.",
       "source_file": "agents/provider_pool.py",
-      "source_location": "L324"
+      "source_location": "L321"
     },
     {
-      "id": "agents_provider_pool_rationale_338",
+      "id": "agents_provider_pool_rationale_335",
       "label": "Close all cached AsyncOpenAI clients.",
       "_origin": "ast",
       "community": 25,
@@ -4547,7 +4547,7 @@
       "file_type": "rationale",
       "norm_label": "close all cached asyncopenai clients.",
       "source_file": "agents/provider_pool.py",
-      "source_location": "L338"
+      "source_location": "L335"
     },
     {
       "id": "agents_provider_pool_rationale_65",
@@ -6436,7 +6436,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "agents/provider_pool.py",
-      "source_location": "L334",
+      "source_location": "L331",
       "weight": 1.0
     },
     {
@@ -6448,7 +6448,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "agents/provider_pool.py",
-      "source_location": "L238",
+      "source_location": "L235",
       "weight": 1.0
     },
     {
@@ -6616,7 +6616,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "config/settings.py",
-      "source_location": "L269",
+      "source_location": "L252",
       "weight": 1.0
     },
     {
@@ -8368,7 +8368,7 @@
       "confidence_score": 1.0,
       "context": "generic_arg",
       "source_file": "agents/provider_pool.py",
-      "source_location": "L323",
+      "source_location": "L320",
       "weight": 1.0
     },
     {
@@ -8380,7 +8380,7 @@
       "confidence_score": 1.0,
       "context": "generic_arg",
       "source_file": "agents/provider_pool.py",
-      "source_location": "L244",
+      "source_location": "L241",
       "weight": 1.0
     },
     {
@@ -10804,7 +10804,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "agents/provider_pool.py",
-      "source_location": "L244",
+      "source_location": "L241",
       "weight": 1.0
     },
     {
@@ -10816,7 +10816,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "agents/provider_pool.py",
-      "source_location": "L234",
+      "source_location": "L231",
       "weight": 1.0
     },
     {
@@ -10840,7 +10840,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "agents/provider_pool.py",
-      "source_location": "L311",
+      "source_location": "L308",
       "weight": 1.0
     },
     {
@@ -10852,7 +10852,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "agents/provider_pool.py",
-      "source_location": "L298",
+      "source_location": "L295",
       "weight": 1.0
     },
     {
@@ -11416,7 +11416,7 @@
       "confidence_score": 1.0,
       "context": "return_type",
       "source_file": "config/settings.py",
-      "source_location": "L267",
+      "source_location": "L250",
       "weight": 1.0
     },
     {
@@ -11926,7 +11926,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "config/settings.py",
-      "source_location": "L267",
+      "source_location": "L250",
       "weight": 1.0
     },
     {
@@ -13268,7 +13268,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "agents/provider_pool.py",
-      "source_location": "L234",
+      "source_location": "L231",
       "weight": 1.0
     },
     {
@@ -13279,7 +13279,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "agents/provider_pool.py",
-      "source_location": "L244",
+      "source_location": "L241",
       "weight": 1.0
     },
     {
@@ -13290,7 +13290,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "agents/provider_pool.py",
-      "source_location": "L298",
+      "source_location": "L295",
       "weight": 1.0
     },
     {
@@ -13301,7 +13301,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "agents/provider_pool.py",
-      "source_location": "L311",
+      "source_location": "L308",
       "weight": 1.0
     },
     {
@@ -13312,7 +13312,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "agents/provider_pool.py",
-      "source_location": "L323",
+      "source_location": "L320",
       "weight": 1.0
     },
     {
@@ -13323,7 +13323,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "agents/provider_pool.py",
-      "source_location": "L337",
+      "source_location": "L334",
       "weight": 1.0
     },
     {
@@ -15010,69 +15010,69 @@
       "weight": 1.0
     },
     {
-      "source": "agents_provider_pool_rationale_235",
+      "source": "agents_provider_pool_rationale_232",
       "target": "agents_provider_pool_llmproviderpool_get_client",
       "relation": "rationale_for",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "agents/provider_pool.py",
-      "source_location": "L235",
+      "source_location": "L232",
       "weight": 1.0
     },
     {
-      "source": "agents_provider_pool_rationale_247",
+      "source": "agents_provider_pool_rationale_244",
       "target": "agents_provider_pool_llmproviderpool_get_candidate_targets",
       "relation": "rationale_for",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "agents/provider_pool.py",
-      "source_location": "L247",
+      "source_location": "L244",
       "weight": 1.0
     },
     {
-      "source": "agents_provider_pool_rationale_299",
+      "source": "agents_provider_pool_rationale_296",
       "target": "agents_provider_pool_llmproviderpool_record_cooldown",
       "relation": "rationale_for",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "agents/provider_pool.py",
-      "source_location": "L299",
+      "source_location": "L296",
       "weight": 1.0
     },
     {
-      "source": "agents_provider_pool_rationale_312",
+      "source": "agents_provider_pool_rationale_309",
       "target": "agents_provider_pool_llmproviderpool_parse_retry_delay",
       "relation": "rationale_for",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "agents/provider_pool.py",
-      "source_location": "L312",
+      "source_location": "L309",
       "weight": 1.0
     },
     {
-      "source": "agents_provider_pool_rationale_324",
+      "source": "agents_provider_pool_rationale_321",
       "target": "agents_provider_pool_llmproviderpool_get_audio_target",
       "relation": "rationale_for",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "agents/provider_pool.py",
-      "source_location": "L324",
+      "source_location": "L321",
       "weight": 1.0
     },
     {
-      "source": "agents_provider_pool_rationale_338",
+      "source": "agents_provider_pool_rationale_335",
       "target": "agents_provider_pool_llmproviderpool_close",
       "relation": "rationale_for",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "agents/provider_pool.py",
-      "source_location": "L338",
+      "source_location": "L335",
       "weight": 1.0
     },
     {
@@ -15219,14 +15219,14 @@
       "weight": 1.0
     },
     {
-      "source": "config_settings_rationale_268",
+      "source": "config_settings_rationale_251",
       "target": "config_settings_get_settings",
       "relation": "rationale_for",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "config/settings.py",
-      "source_location": "L268",
+      "source_location": "L251",
       "weight": 1.0
     },
     {
@@ -17278,5 +17278,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "55e8e5eed89797fd397f869856f540f1e5fb20a1"
+  "built_at_commit": "f562ee166634bbf82c7dea9355df3a28dfaddcff"
 }

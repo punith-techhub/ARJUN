@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .base import BaseAgent
 from .coder import CoderOutput
+from .provider_pool import TaskComplexity
 
 
 class ReviewIssue(BaseModel):
@@ -109,15 +110,17 @@ class ReviewerAgent:
             json.dumps(payload, separators=(",", ":")),
             response_model=ReviewResult,
             max_tokens=1024,
+            complexity=TaskComplexity.STANDARD,
             system_instruction=(
                 "You are the Reviewer agent. Review the generated repository changes as a "
                 "strict production gate. Check imports, syntax consistency, edge cases, "
                 "security issues, leaked credentials, unsafe path handling, incomplete logic, "
                 "and whether the original request is actually satisfied. "
+                "Verify that frontend files meet modern UI/UX standards (responsive layout, modern styling/Tailwind, complete scripts). "
                 "APPROVAL RULES: Set approved=true when the code is functionally complete and "
                 "safe to commit. Only set approved=false when there is at least one issue with "
                 "severity='blocker' or severity='high' (e.g. syntax errors, missing required "
-                "files, broken imports, leaked secrets, security vulnerabilities, or the request "
+                "files, broken imports, leaked secrets, security vulnerabilities, completely unstyled/broken UI, or the request "
                 "is clearly not implemented). Medium and low severity issues (minor inefficiencies, "
                 "style preferences, optional optimizations, minor code clarity issues) must be "
                 "listed in the issues array but MUST NOT cause approved=false. The code can and "

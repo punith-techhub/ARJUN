@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import threading
 import time
-from http.server import HTTPServer, SimpleHTTPRequestHandler
+import urllib.request
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 
@@ -23,6 +25,40 @@ from services.secret_service import SecretStore
 from services.telegram_handler import TelegramHandler
 from services.vercel_service import VercelService
 from utils.audio import VoiceTranscriber
+
+_START_TIME = time.monotonic()
+logger = logging.getLogger(__name__)
+
+
+class _HealthHandler(BaseHTTPRequestHandler):
+    """Minimal JSON health endpoint for Render / UptimeRobot pings."""
+
+    def do_GET(self) -> None:
+        uptime = int(time.monotonic() - _START_TIME)
+        body = json.dumps(
+            {"status": "alive", "uptime_seconds": uptime, "version": "arjun-2.0"},
+            separators=(",", ":"),
+        ).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format: str, *args: object) -> None:  # noqa: A002
+        """Silence default stderr logging for health pings."""
+
+
+def _self_ping(url: str, interval: int = 600) -> None:
+    """Background thread that pings the Render external URL to prevent sleep."""
+    while True:
+        time.sleep(interval)
+        try:
+            req = urllib.request.Request(url, method="GET")
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                logger.info("Self-ping %s -> %s", url, resp.status)
+        except Exception as exc:
+            logger.warning("Self-ping failed: %s", exc)
 
 
 def build_application() -> tuple[Application, BaseAgent, GitHubService]:
@@ -81,12 +117,20 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
-    # Start a dummy HTTP server so Render "Web Service" health checks pass
+    # Start the health-check HTTP server for Render
     port = int(os.environ.get("PORT", 8080))
     threading.Thread(
-        target=lambda: HTTPServer(("0.0.0.0", port), SimpleHTTPRequestHandler).serve_forever(),
-        daemon=True
+        target=lambda: HTTPServer(("0.0.0.0", port), _HealthHandler).serve_forever(),
+        daemon=True,
     ).start()
+    logger.info("Health endpoint listening on port %d", port)
+
+    # Start the self-ping keep-alive thread
+    settings = get_settings()
+    ping_url = settings.render_external_url
+    if ping_url:
+        threading.Thread(target=_self_ping, args=(ping_url,), daemon=True).start()
+        logger.info("Self-ping keep-alive started for %s (every 10 min)", ping_url)
 
     # httpx logs full Telegram URLs at INFO, which would expose the bot token.
     # Keep provider failures in our own sanitized handlers instead.

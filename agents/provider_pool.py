@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import enum
 import logging
 import re
 import time
@@ -21,24 +22,42 @@ GROQ_OPENAI_BASE_URL = "https://api.groq.com/openai/v1"
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 DEFAULT_GEMINI_MODELS = (
-    "gemini-2.0-flash",
-    "gemini-1.5-flash-8b",
-    "gemini-2.5-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3-flash-preview",
+    "gemini-3.1-flash-lite",
+    "gemini-flash-latest",
 )
 DEFAULT_GROQ_MODELS = (
-    "groq/compound",
-    "openai/gpt-oss-120b",
     "qwen/qwen3.8-27b",
-    "groq/compound-mini",
     "openai/gpt-oss-20b",
+    "groq/compound-mini",
+    "openai/gpt-oss-120b",
     "qwen/qwen3.6-27b",
+    "groq/compound",
 )
+# Fast, responsive verified $0/$0 models on OpenRouter (monolithic 550B removed to prevent hanging queues)
 DEFAULT_OPENROUTER_MODELS = (
-    "inclusionai/ling-3.0-flash-vl:free",
-    "nex-agi/nex-n2.5-mini:free",
-    "google/gemini-2.0-flash-exp:free",
-    "meta-llama/llama-3.3-70b-instruct:free",
+    "nvidia/nemotron-3-super-120b-a12b:free",
+    "google/gemma-4-31b-it:free",
+    "poolside/laguna-s-2.1:free",
+    "nex-agi/nex-n2.5-pro:free",
 )
+
+
+class TaskComplexity(enum.Enum):
+    """Routing hint so the pool can prioritise the right model tier."""
+
+    HEAVY = "heavy"      # Architecture planning, full-stack coding
+    STANDARD = "standard"  # Per-file coding, debugging
+    LIGHT = "light"      # Reviews, commit messages, routing
+
+
+# Provider priority order for each complexity level (Groq prioritized over slow OpenRouter queues)
+_PROVIDER_PRIORITY: dict[TaskComplexity, list[str]] = {
+    TaskComplexity.HEAVY: ["gemini", "groq", "openrouter", "custom"],
+    TaskComplexity.STANDARD: ["gemini", "groq", "openrouter", "custom"],
+    TaskComplexity.LIGHT: ["groq", "gemini", "openrouter", "custom"],
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +101,10 @@ class LLMProviderPool:
             gemini_models = [m for m in custom_models if "gemini" in m.lower()]
             if not gemini_models:
                 gemini_models = list(DEFAULT_GEMINI_MODELS)
+            else:
+                for def_m in DEFAULT_GEMINI_MODELS:
+                    if def_m not in gemini_models:
+                        gemini_models.append(def_m)
             for model in gemini_models:
                 for key in self.settings.gemini_api_keys:
                     targets.append(
@@ -98,7 +121,7 @@ class LLMProviderPool:
         if self.settings.groq_api_keys:
             groq_models = [
                 m for m in custom_models 
-                if any(x in m.lower() for x in ("gpt-oss", "qwen", "compound", "llama", "mixtral", "gemma"))
+                if any(x in m.lower() for x in ("gpt-oss", "qwen", "compound", "llama", "mixtral", "gemma", "versatile"))
             ]
             if not groq_models:
                 groq_models = list(DEFAULT_GROQ_MODELS)
@@ -159,32 +182,35 @@ class LLMProviderPool:
             is_audio = False
             audio_model = "whisper-1"
 
-            if key.startswith("gsk_"):
+            if key.startswith("gsk_") or (base_url and "api.groq.com" in base_url):
                 provider = "groq"
                 base_url = GROQ_OPENAI_BASE_URL
                 is_audio = True
                 audio_model = "whisper-large-v3"
-            elif key.startswith("AIza"):
+            elif key.startswith("AIza") or key.startswith("AQ.") or (base_url and "generativelanguage.googleapis.com" in base_url):
                 provider = "gemini"
                 base_url = GEMINI_OPENAI_BASE_URL
-            elif key.startswith("sk-or-"):
+            elif key.startswith("sk-or-") or (base_url and "openrouter.ai" in base_url):
                 provider = "openrouter"
                 base_url = OPENROUTER_BASE_URL
 
             # Determine models for this generic key
             models = list(custom_models)
             if provider == "groq":
-                models = [m for m in models if any(x in m.lower() for x in ("llama", "mixtral", "gemma"))]
-                if not models:
-                    models = list(DEFAULT_GROQ_MODELS)
+                models = [m for m in models if any(x in m.lower() for x in ("gpt-oss", "qwen", "compound", "llama", "mixtral", "gemma", "versatile"))]
+                for def_m in DEFAULT_GROQ_MODELS:
+                    if def_m not in models:
+                        models.append(def_m)
             elif provider == "gemini":
-                models = [m for m in models if "gemini" in m.lower()]
-                if not models:
-                    models = list(DEFAULT_GEMINI_MODELS)
+                models = [m for m in models if "gemini" in m.lower() and m != "gemini-2.5-flash"]
+                for def_m in DEFAULT_GEMINI_MODELS:
+                    if def_m not in models:
+                        models.append(def_m)
             elif provider == "openrouter":
                 models = [m for m in models if "/" in m or ":free" in m]
-                if not models:
-                    models = list(DEFAULT_OPENROUTER_MODELS)
+                for def_m in DEFAULT_OPENROUTER_MODELS:
+                    if def_m not in models:
+                        models.append(def_m)
 
             for model in models:
                 targets.append(
@@ -215,8 +241,10 @@ class LLMProviderPool:
             )
         return self._clients[cache_key]
 
-    async def get_candidate_targets(self) -> list[LLMTarget]:
-        """Return candidate targets, prioritizing available targets without active cooldown."""
+    async def get_candidate_targets(
+        self, complexity: TaskComplexity = TaskComplexity.STANDARD,
+    ) -> list[LLMTarget]:
+        """Return candidate targets, ordered by task complexity and availability."""
         async with self._lock:
             now = time.monotonic()
             # Clean up expired cooldowns
@@ -243,13 +271,24 @@ class LLMProviderPool:
                 )
                 return cooling
 
+            # Sort available targets by provider priority for the requested complexity
+            priority = _PROVIDER_PRIORITY.get(complexity, _PROVIDER_PRIORITY[TaskComplexity.STANDARD])
+            provider_rank = {p: i for i, p in enumerate(priority)}
+
+            def sort_key(t: LLMTarget) -> tuple[int, int]:
+                rank = provider_rank.get(t.provider, 99)
+                idx = self._key_rotation_index.get(t.provider, 0)
+                return (rank, idx)
+
+            available.sort(key=sort_key)
+
             # Rotate keys per provider to distribute load
             result: list[LLMTarget] = []
-            providers = sorted(list({t.provider for t in available}))
+            providers = sorted(list({t.provider for t in available}),
+                               key=lambda p: provider_rank.get(p, 99))
             for prov in providers:
                 prov_targets = [t for t in available if t.provider == prov]
                 idx = self._key_rotation_index.get(prov, 0) % max(1, len(prov_targets))
-                # Shift by idx
                 rotated = prov_targets[idx:] + prov_targets[:idx]
                 result.extend(rotated)
                 self._key_rotation_index[prov] = idx + 1
