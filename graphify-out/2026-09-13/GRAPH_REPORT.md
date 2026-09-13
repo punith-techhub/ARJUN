@@ -1,7 +1,7 @@
 # Graph Report - ARJUN  (2026-09-13)
 
 ## Corpus Check
-- 29 files · ~20,070 words
+- 29 files · ~20,071 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary

@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .base import BaseAgent, LLMAgentError
 from .planner import PlannedFile, TaskPlan
+from .provider_pool import TaskComplexity
 
 logger = logging.getLogger(__name__)
 
@@ -150,6 +151,7 @@ class CoderAgent:
             ),
             response_model=CommitMessage,
             max_tokens=256,
+            complexity=TaskComplexity.LIGHT,
             system_instruction=(
                 "Write one concise conventional-commit style message for these files. "
                 "No body, no secrets."
@@ -186,17 +188,27 @@ class CoderAgent:
             prompt_dict["previous_version_of_target_file"] = previous_content[:3000]
 
         system_instruction = (
-            "You are the Coder agent. Produce the complete code content for exactly the "
-            f"target_file '{planned.filepath}'.\n"
+            "You are the Coder agent, an elite senior full-stack engineer and UI/UX designer. "
+            f"Produce the complete, production-grade code content for exactly the target_file '{planned.filepath}'.\n"
             "MANDATORY REQUIREMENTS:\n"
-            "1. The 'content' field must contain the FULL, WORKING source code for this file. "
+            "1. The 'content' field must contain the FULL, WORKING, PRODUCTION-READY source code for this file. "
             "Never leave 'content' empty, and never output placeholder comments like '// TODO' or '...rest of code...'.\n"
             "2. 'filepath' must exactly match the target_file path.\n"
             "3. 'action' must match the target_file action ('create' or 'update').\n"
-            "4. Ensure full type and interface consistency with sibling components ('sibling_files_context'). "
+            "4. DESIGN & AESTHETIC EXCELLENCE (FRONTEND FILES):\n"
+            "   - If HTML: Include Tailwind CSS CDN (<script src=\"https://cdn.tailwindcss.com\"></script>), "
+            "Google Fonts ('Inter' or 'Outfit'), and Lucide Icons (<script src=\"https://unpkg.com/lucide@latest\"></script>). "
+            "Include proper responsive meta tags and modern layout containers.\n"
+            "   - If CSS: Use a modern dark/light palette (zinc/slate), subtle gradients, glassmorphism (backdrop-filter: blur), "
+            "smooth transitions, box-shadows, and micro-animations. Never leave plain default elements.\n"
+            "   - If JS (GAMES/INTERACTIVE): Build a complete, polished experience with a 60fps game loop (requestAnimationFrame), "
+            "keyboard + mobile-touch listeners, particle effects, floating score text, pause/restart overlay menus, "
+            "high scores saved to localStorage, and procedural synth sound effects using the native Web Audio API (AudioContext) "
+            "so sound works with ZERO external file dependencies.\n"
+            "5. Ensure full type and interface consistency with sibling components ('sibling_files_context'). "
             "Props, function parameters, types, and imports must match exactly across all files.\n"
-            "5. Carefully address any specific issues mentioned in 'review_feedback'.\n"
-            "6. Return valid JSON only with keys: 'filepath', 'action', and 'content'."
+            "6. Carefully address any specific issues mentioned in 'review_feedback'.\n"
+            "7. Return valid JSON only with keys: 'filepath', 'action', and 'content'."
         )
 
         last_result: GeneratedFile | None = None
@@ -212,7 +224,8 @@ class CoderAgent:
             result = await self.base.generate_json(
                 prompt,
                 response_model=GeneratedFile,
-                max_tokens=3500,
+                max_tokens=6144,
+                complexity=TaskComplexity.HEAVY,
                 system_instruction=system_instruction,
             )
 

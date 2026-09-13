@@ -8,6 +8,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .base import BaseAgent
+from .provider_pool import TaskComplexity
 
 
 class ProjectRoute(BaseModel):
@@ -59,6 +60,7 @@ class ProjectRouterAgent:
             ),
             response_model=ProjectRoute,
             max_tokens=256,
+            complexity=TaskComplexity.LIGHT,
             system_instruction=(
                 "You are Arjun's project router. Decide whether the user wants a NEW project, "
                 "an EXISTING registered project, or is just making CHAT conversation. "

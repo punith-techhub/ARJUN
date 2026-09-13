@@ -48,6 +48,7 @@ class Settings(BaseModel):
     question_timeout_seconds: int = Field(default=900, ge=60, le=3600)
     github_auto_create_repositories: bool = True
     github_new_repo_private: bool = True
+    render_external_url: str = ""
 
     @field_validator("github_repo")
     @classmethod
@@ -176,9 +177,9 @@ class Settings(BaseModel):
                 if not models:
                     models = ("openai/gpt-oss-120b", "qwen/qwen3.8-27b", "llama-3.3-70b-versatile")
             elif openrouter_keys or any(k.startswith("sk-or-") for k in llm_api_keys):
-                model = "meta-llama/llama-3.3-70b-instruct:free"
+                model = "nvidia/nemotron-3-super-120b-a12b:free"
                 if not models:
-                    models = ("meta-llama/llama-3.3-70b-instruct:free", "google/gemini-2.0-flash-exp:free")
+                    models = ("nvidia/nemotron-3-super-120b-a12b:free", "nvidia/nemotron-3-ultra-550b-a55b:free")
             else:
                 model = "gpt-4o-mini"
         elif user_model:
@@ -241,6 +242,7 @@ class Settings(BaseModel):
             question_timeout_seconds=integer("ARJUN_QUESTION_TIMEOUT_SECONDS", 900),
             github_auto_create_repositories=boolean("GITHUB_AUTO_CREATE_REPOSITORIES", True),
             github_new_repo_private=boolean("GITHUB_NEW_REPO_PRIVATE", True),
+            render_external_url=os.getenv("RENDER_EXTERNAL_URL", "https://arjun-hfj7.onrender.com"),
         )
 
 
