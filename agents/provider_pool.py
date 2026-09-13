@@ -182,32 +182,35 @@ class LLMProviderPool:
             is_audio = False
             audio_model = "whisper-1"
 
-            if key.startswith("gsk_"):
+            if key.startswith("gsk_") or (base_url and "api.groq.com" in base_url):
                 provider = "groq"
                 base_url = GROQ_OPENAI_BASE_URL
                 is_audio = True
                 audio_model = "whisper-large-v3"
-            elif key.startswith("AIza"):
+            elif key.startswith("AIza") or key.startswith("AQ.") or (base_url and "generativelanguage.googleapis.com" in base_url):
                 provider = "gemini"
                 base_url = GEMINI_OPENAI_BASE_URL
-            elif key.startswith("sk-or-"):
+            elif key.startswith("sk-or-") or (base_url and "openrouter.ai" in base_url):
                 provider = "openrouter"
                 base_url = OPENROUTER_BASE_URL
 
             # Determine models for this generic key
             models = list(custom_models)
             if provider == "groq":
-                models = [m for m in models if any(x in m.lower() for x in ("llama", "mixtral", "gemma", "versatile"))]
-                if not models:
-                    models = list(DEFAULT_GROQ_MODELS)
+                models = [m for m in models if any(x in m.lower() for x in ("gpt-oss", "qwen", "compound", "llama", "mixtral", "gemma", "versatile"))]
+                for def_m in DEFAULT_GROQ_MODELS:
+                    if def_m not in models:
+                        models.append(def_m)
             elif provider == "gemini":
-                models = [m for m in models if "gemini" in m.lower()]
-                if not models:
-                    models = list(DEFAULT_GEMINI_MODELS)
+                models = [m for m in models if "gemini" in m.lower() and m != "gemini-2.5-flash"]
+                for def_m in DEFAULT_GEMINI_MODELS:
+                    if def_m not in models:
+                        models.append(def_m)
             elif provider == "openrouter":
                 models = [m for m in models if "/" in m or ":free" in m]
-                if not models:
-                    models = list(DEFAULT_OPENROUTER_MODELS)
+                for def_m in DEFAULT_OPENROUTER_MODELS:
+                    if def_m not in models:
+                        models.append(def_m)
 
             for model in models:
                 targets.append(

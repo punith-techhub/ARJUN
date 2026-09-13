@@ -63,6 +63,9 @@ class Settings(BaseModel):
     def from_environment(cls) -> "Settings":
         """Load and validate settings from the process environment."""
         load_dotenv()
+        for secret_path in ("/etc/secrets/.env", "/etc/secrets/env", "../.env"):
+            if os.path.exists(secret_path):
+                load_dotenv(secret_path, override=True)
         raw_users = os.getenv("TELEGRAM_ALLOWED_USERS", "")
         try:
             users = frozenset(
@@ -110,18 +113,32 @@ class Settings(BaseModel):
             raw_llm_keys.insert(0, llm_key)
         llm_api_keys = tuple(raw_llm_keys)
 
-        gemini_keys = tuple(
+        gemini_keys_list = [
             k for k in csv_values("GEMINI_API_KEYS", os.getenv("GEMINI_API_KEY", ""))
             if k not in {"not_needed_for_omniroute", "replace_with_api_key", ""}
-        )
-        groq_keys = tuple(
+        ]
+        groq_keys_list = [
             k for k in csv_values("GROQ_API_KEYS", os.getenv("GROQ_API_KEY", ""))
             if k not in {"not_needed_for_omniroute", "replace_with_api_key", ""}
-        )
-        openrouter_keys = tuple(
+        ]
+        openrouter_keys_list = [
             k for k in csv_values("OPENROUTER_API_KEYS", os.getenv("OPENROUTER_API_KEY", ""))
             if k not in {"not_needed_for_omniroute", "replace_with_api_key", ""}
-        )
+        ]
+
+        # Auto-detect provider for keys passed in LLM_API_KEY / LLM_API_KEYS if provider-specific keys are not set
+        base_url_env = os.getenv("LLM_BASE_URL", "").strip()
+        for k in raw_llm_keys:
+            if (k.startswith("AIza") or k.startswith("AQ.") or "generativelanguage.googleapis.com" in base_url_env) and k not in gemini_keys_list:
+                gemini_keys_list.append(k)
+            elif (k.startswith("gsk_") or "api.groq.com" in base_url_env) and k not in groq_keys_list:
+                groq_keys_list.append(k)
+            elif (k.startswith("sk-or-") or "openrouter.ai" in base_url_env) and k not in openrouter_keys_list:
+                openrouter_keys_list.append(k)
+
+        gemini_keys = tuple(gemini_keys_list)
+        groq_keys = tuple(groq_keys_list)
+        openrouter_keys = tuple(openrouter_keys_list)
 
         def clean_token(val: str, placeholders: set[str]) -> str:
             v = val.strip()
@@ -164,22 +181,22 @@ class Settings(BaseModel):
         models = csv_values("LLM_MODELS")
         user_model = os.getenv("LLM_MODEL", "").strip()
         has_openai = any(
-            not (k.startswith("AIza") or k.startswith("gsk_") or k.startswith("sk-or-"))
+            not (k.startswith("AIza") or k.startswith("AQ.") or k.startswith("gsk_") or k.startswith("sk-or-"))
             for k in llm_api_keys
         )
-        if not has_openai and (user_model == "gpt-4o-mini" or not user_model):
-            if gemini_keys or any(k.startswith("AIza") for k in llm_api_keys):
-                model = "gemini-2.5-flash"
+        if not has_openai and (user_model in {"gpt-4o-mini", "gemini-2.5-flash", ""} or not user_model):
+            if gemini_keys or any((k.startswith("AIza") or k.startswith("AQ.")) for k in llm_api_keys):
+                model = "gemini-3.5-flash-lite"
                 if not models:
-                    models = ("gemini-2.5-flash", "gemini-3.6-flash", "gemini-2.0-flash", "gemini-1.5-flash")
+                    models = ("gemini-3.5-flash-lite", "gemini-3-flash-preview", "gemini-3.1-flash-lite", "gemini-flash-latest")
             elif groq_keys or any(k.startswith("gsk_") for k in llm_api_keys):
-                model = "openai/gpt-oss-120b"
+                model = "qwen/qwen3.8-27b"
                 if not models:
-                    models = ("openai/gpt-oss-120b", "qwen/qwen3.8-27b", "llama-3.3-70b-versatile")
+                    models = ("qwen/qwen3.8-27b", "openai/gpt-oss-20b", "groq/compound-mini", "openai/gpt-oss-120b")
             elif openrouter_keys or any(k.startswith("sk-or-") for k in llm_api_keys):
                 model = "nvidia/nemotron-3-super-120b-a12b:free"
                 if not models:
-                    models = ("nvidia/nemotron-3-super-120b-a12b:free", "nvidia/nemotron-3-ultra-550b-a55b:free")
+                    models = ("nvidia/nemotron-3-super-120b-a12b:free", "google/gemma-4-31b-it:free", "poolside/laguna-s-2.1:free")
             else:
                 model = "gpt-4o-mini"
         elif user_model:
